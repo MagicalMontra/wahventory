@@ -1,0 +1,52 @@
+name: Build plugin
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: dalamud
+    env:
+      PROJECT: wahventory/WahVentory.csproj
+      INTERNAL: wahventory
+      DALAMUD_HOME: /tmp/dalamud
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Dalamud
+        run: |
+          set -euo pipefail
+          command -v unzip >/dev/null || { apt-get update -qq && apt-get install -y -qq unzip; }
+          curl -fsSL -o /tmp/dalamud.zip https://goatcorp.github.io/dalamud-distrib/latest.zip
+          mkdir -p "$DALAMUD_HOME"
+          unzip -oq /tmp/dalamud.zip -d "$DALAMUD_HOME"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          dotnet build "$PROJECT" -c Release -p:EnableWindowsTargeting=true
+          out="$(dirname "$PROJECT")/bin/Release/$INTERNAL"
+          if [ ! -f "$out/latest.zip" ]; then
+            echo "::error::expected $out/latest.zip, DalamudPackager produced:"
+            find "$(dirname "$PROJECT")/bin" -maxdepth 3 -name "*.zip" -o -name "*.json" || true
+            exit 1
+          fi
+          ls -l "$out"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.INTERNAL }}
+          path: ${{ env.OUT }}/latest.zip
+          if-no-files-found: error
