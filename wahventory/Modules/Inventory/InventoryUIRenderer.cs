@@ -347,19 +347,25 @@ internal sealed class InventoryUIRenderer
                 if (ImGui.Button("Clear", new Vector2(clearW, 0))) _module._state.ClearSelectionAndReset();
             }
             ImGui.SameLine();
+            var locked = _module.ListsLocked;
+            const string lockedTip = "Lists are synced from a URL — edit the source file instead.";
+            using (ImRaii.Disabled(locked))
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.227f, 0.227f, 0.541f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.327f, 0.327f, 0.641f, 1f)))
             {
                 if (ImGui.Button("Add to blacklist", new Vector2(blW, 0))) _module.AddSelectedToBlacklist();
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add selected items to the blacklist (they'll never be discarded).");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(locked ? lockedTip : "Add selected items to the blacklist (they'll never be discarded).");
             ImGui.SameLine();
+            using (ImRaii.Disabled(locked))
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.541f, 0.341f, 0.127f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.641f, 0.441f, 0.227f, 1f)))
             {
                 if (ImGui.Button("Add to auto-discard", new Vector2(adW, 0))) _module.AddSelectedToAutoDiscard();
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Add selected items to the auto-discard list (discarded by /wahventory auto and passive discard).");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(locked ? lockedTip : "Add selected items to the auto-discard list (discarded by /wahventory auto and passive discard).");
             ImGui.SameLine();
             DrawMoveButton(canMove, moveOverflow, armorySelected, freeSlots, moveW);
             ImGui.SameLine();
@@ -556,6 +562,7 @@ internal sealed class InventoryUIRenderer
 
         ImGui.Separator();
 
+        var listsLocked = ImRaii.Disabled(_module.ListsLocked);
         var isBlacklisted = _module.BlacklistedItems.Contains(item.ItemId);
         if (ImGui.MenuItem(isBlacklisted ? "Remove from blacklist" : "Add to blacklist"))
         {
@@ -585,6 +592,7 @@ internal sealed class InventoryUIRenderer
             _module.SaveAutoDiscard();
             _module.RefreshInventory();
         }
+        listsLocked.Dispose();
 
         ImGui.Separator();
 

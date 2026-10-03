@@ -50,6 +50,8 @@ internal class InventoryListsWindow : Window, IDisposable
         RunDeferredSearch(_blacklistCol);
         RunDeferredSearch(_autoDiscardCol);
 
+        DrawSyncBar();
+
         var width = ImGui.GetContentRegionAvail().X;
         var height = ImGui.GetContentRegionAvail().Y;
         var colW = (width - 8) / 2;
@@ -65,11 +67,40 @@ internal class InventoryListsWindow : Window, IDisposable
         }
     }
 
+    private void DrawSyncBar()
+    {
+        const float exportW = 150;
+        var sync = _module.Settings.ListSync;
+
+        if (sync.Enabled)
+        {
+            ImGui.PushFont(UiBuilder.IconFont);
+            ImGui.TextColored(Theme.ColorBlue, FontAwesomeIcon.CloudDownloadAlt.ToIconString());
+            ImGui.PopFont();
+            ImGui.SameLine();
+            var name = string.IsNullOrWhiteSpace(sync.RemoteName) ? sync.Url : sync.RemoteName;
+            using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
+            {
+                ImGui.Text($"Synced from {name} — edit the source file to change these lists.");
+            }
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(sync.Url);
+            ImGui.SameLine();
+        }
+
+        ImGui.SetCursorPosX(ImGui.GetWindowContentRegionMax().X - exportW);
+        if (ImGui.Button("Copy as sync file", new Vector2(exportW, 0)))
+        {
+            ImGui.SetClipboardText(_module.ListSync.ExportCurrentLists());
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Copy both lists as JSON, ready to commit to a repo and sync from.");
+    }
+
     private void DrawBlacklistColumn()
     {
         DrawColumnHeader("BLACKLIST", _module.BlacklistedItems.Count,
             "Never selected for discard, even if they pass filters.");
-        DrawSearchAdd(_blacklistCol, "blacklist", _module.BlacklistedItems, AddToBlacklist);
+        if (!_module.ListsLocked)
+            DrawSearchAdd(_blacklistCol, "blacklist", _module.BlacklistedItems, AddToBlacklist);
 
         ImGui.Separator();
         ImGui.Spacing();
@@ -83,11 +114,14 @@ internal class InventoryListsWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        if (ImGui.Button("Clear all##bl"))
+        if (!_module.ListsLocked)
         {
-            ImGui.OpenPopup("ClearBlacklistConfirm");
+            if (ImGui.Button("Clear all##bl"))
+            {
+                ImGui.OpenPopup("ClearBlacklistConfirm");
+            }
+            ImGui.SameLine();
         }
-        ImGui.SameLine();
         using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
         {
             ImGui.TextWrapped("Hardcoded items (e.g. Ultimate tokens) are always protected.");
@@ -102,7 +136,8 @@ internal class InventoryListsWindow : Window, IDisposable
     {
         DrawColumnHeader("AUTO-DISCARD", _module.AutoDiscardItems.Count,
             "Discarded by /wahventory auto and passive auto-discard.");
-        DrawSearchAdd(_autoDiscardCol, "autodiscard", _module.AutoDiscardItems, AddToAutoDiscard);
+        if (!_module.ListsLocked)
+            DrawSearchAdd(_autoDiscardCol, "autodiscard", _module.AutoDiscardItems, AddToAutoDiscard);
 
         ImGui.Separator();
         ImGui.Spacing();
@@ -116,11 +151,14 @@ internal class InventoryListsWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        if (ImGui.Button("Clear all##ad"))
+        if (!_module.ListsLocked)
         {
-            ImGui.OpenPopup("ClearAutoDiscardConfirm");
+            if (ImGui.Button("Clear all##ad"))
+            {
+                ImGui.OpenPopup("ClearAutoDiscardConfirm");
+            }
+            ImGui.SameLine();
         }
-        ImGui.SameLine();
         using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.18f, 0.34f, 0.53f, 1f))
                               .Push(ImGuiCol.ButtonHovered, new Vector4(0.21f, 0.40f, 0.62f, 1f)))
         {
@@ -325,6 +363,7 @@ internal class InventoryListsWindow : Window, IDisposable
             ImGui.TextColored(Theme.ColorSubdued, ilvlText);
 
             ImGui.TableNextColumn();
+            if (_module.ListsLocked) continue;
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.45f, 0.20f, 0.20f, 0.6f))
                                   .Push(ImGuiCol.Text, Theme.ColorSubdued))

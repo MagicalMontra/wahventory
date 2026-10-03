@@ -28,6 +28,27 @@ public class InventorySettings
     public Dictionary<uint, bool> ExpandedCategories { get; set; } = new();
 
     public PassiveDiscardSettings PassiveDiscard { get; set; } = new();
+
+    public ListSyncSettings ListSync { get; set; } = new();
+}
+
+[Serializable]
+public class ListSyncSettings
+{
+    public bool Enabled { get; set; } = false;
+    public string Url { get; set; } = string.Empty;
+    public int CheckIntervalMinutes { get; set; } = 30;
+
+    public string? LastAppliedHash { get; set; }
+    public string? SkippedHash { get; set; }
+    public string? ETag { get; set; }
+
+    public string? PreSyncBackup { get; set; }
+
+    public string? RemoteName { get; set; }
+    public int? RemoteRevision { get; set; }
+    public DateTime? LastAppliedAt { get; set; }
+    public DateTime? LastCheckedAt { get; set; }
 }
 
 [Serializable]
