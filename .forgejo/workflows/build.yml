@@ -46,6 +46,7 @@ jobs:
           echo "OUT=$out" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v3
+        continue-on-error: true
         with:
           name: ${{ env.INTERNAL }}
           path: ${{ env.OUT }}/latest.zip
