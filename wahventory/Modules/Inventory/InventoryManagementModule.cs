@@ -28,6 +28,8 @@ public class InventoryManagementModule : IDisposable
     internal InventoryListsWindow ListsWindow { get; }
     internal InventorySettingsWindow SettingsWindow { get; }
     internal InventoryFilteredItemsWindow FilteredItemsWindow { get; }
+    internal ListSyncReviewWindow ListSyncReviewWindow { get; }
+    internal ListSyncController ListSync { get; }
 
     // State
     private bool _initialized = false;
@@ -35,6 +37,8 @@ public class InventoryManagementModule : IDisposable
 
     public HashSet<uint> BlacklistedItems { get; private set; }
     public HashSet<uint> AutoDiscardItems { get; private set; }
+
+    internal bool ListsLocked => Settings.ListSync.Enabled;
 
     internal string _searchFilter = string.Empty;
     internal bool _showArmory = false;
@@ -88,6 +92,10 @@ public class InventoryManagementModule : IDisposable
         ListsWindow = new InventoryListsWindow(this, _state, _searchService, _iconCache);
         SettingsWindow = new InventorySettingsWindow(this, _passiveDiscardService, _state);
         FilteredItemsWindow = new InventoryFilteredItemsWindow(this, _state, _searchService, _iconCache);
+
+        ListSync = new ListSyncController(this, _plugin.ConfigManager, _services.Log, _services.ChatGui);
+        ListSyncReviewWindow = new ListSyncReviewWindow(this, ListSync, _searchService, _iconCache);
+        ListSync.PendingReviewRequested += () => ListSyncReviewWindow.IsOpen = true;
 
         _ui = new InventoryUIRenderer(this, _filterService, _searchService, _priceService, _passiveDiscardService, _iconCache, ListsWindow, SettingsWindow, FilteredItemsWindow);
     }
@@ -237,6 +245,8 @@ public class InventoryManagementModule : IDisposable
             _lastConfigSave = DateTime.Now;
         }
 
+        ListSync.Update();
+
         // Update passive discard
         _passiveDiscardService.Update(
             AutoDiscardItems,
@@ -304,6 +314,19 @@ public class InventoryManagementModule : IDisposable
     {
         _plugin.ConfigManager.SaveAutoDiscard(AutoDiscardItems);
     }
+
+    internal List<ListBackupInfo> ListBackups() => _plugin.ConfigManager.GetListBackups();
+
+    internal void ReplaceLists(IEnumerable<uint> blacklist, IEnumerable<uint> autoDiscard)
+    {
+        BlacklistedItems.Clear();
+        BlacklistedItems.UnionWith(blacklist);
+        AutoDiscardItems.Clear();
+        AutoDiscardItems.UnionWith(autoDiscard);
+        SaveBlacklist();
+        SaveAutoDiscard();
+        RefreshInventory();
+    }
     
     public void ExecuteAutoDiscard()
     {
@@ -329,7 +352,7 @@ public class InventoryManagementModule : IDisposable
     internal void AddSelectedToBlacklist()
     {
         var count = _state.SelectedCount;
-        if (count == 0) return;
+        if (count == 0 || ListsLocked) return;
         _state.TransferSelectionTo(BlacklistedItems);
         SaveBlacklist();
         RefreshInventory();
@@ -366,7 +389,7 @@ public class InventoryManagementModule : IDisposable
     internal void AddSelectedToAutoDiscard()
     {
         var count = _state.SelectedCount;
-        if (count == 0) return;
+        if (count == 0 || ListsLocked) return;
         _state.TransferSelectionTo(AutoDiscardItems);
         SaveAutoDiscard();
         RefreshInventory();
@@ -383,6 +406,7 @@ public class InventoryManagementModule : IDisposable
         ListsWindow?.Dispose();
         SettingsWindow?.Dispose();
         FilteredItemsWindow?.Dispose();
+        ListSync?.Dispose();
         if (DiscardService != null)
         {
             DiscardService.OnDiscardCompleted -= OnInventoryMutated;
