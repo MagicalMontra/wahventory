@@ -23,8 +23,16 @@ public class DiscardService : IDisposable
     private int _discardProgress = 0;
     private string? _discardError = null;
     private DateTime _discardStartTime = DateTime.MinValue;
-    private int _confirmRetryCount = 0;
+    private DateTime? _yesMissingSince = null;
     private bool _isDiscarding = false;
+    
+    private static readonly TimeSpan ConfirmTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan NoDialogTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan YesButtonTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ItemGoneTimeout = TimeSpan.FromSeconds(5);
+    private const int SettleDelayMs = 100;
+    
+    private static readonly TaskManagerConfiguration PollConfig = new(timeLimitMS: 60000);
     
     public event Action? OnDiscardStarted;
     public event Action? OnDiscardCompleted;
@@ -112,7 +120,7 @@ public class DiscardService : IDisposable
         _itemsToDiscard.Clear();
         _discardProgress = 0;
         _discardError = null;
-        _confirmRetryCount = 0;
+        _yesMissingSince = null;
         _discardStartTime = DateTime.MinValue;
         
         OnDiscardCancelled?.Invoke();
@@ -142,9 +150,9 @@ public class DiscardService : IDisposable
             _log.Information($"Discard call completed for {item.Name}");
             
             _discardStartTime = DateTime.Now;
+            _yesMissingSince = null;
             
-            _taskManager.EnqueueDelay(500);
-            _taskManager.Enqueue(() => ConfirmDiscard());
+            _taskManager.Enqueue(ConfirmDiscard, PollConfig);
         }
         catch (Exception ex)
         {
@@ -154,88 +162,77 @@ public class DiscardService : IDisposable
         }
     }
     
-    private unsafe void ConfirmDiscard()
+    private unsafe bool ConfirmDiscard()
     {
-        _log.Information($"ConfirmDiscard called, looking for dialog (retry {_confirmRetryCount})");
-        
-        if (DateTime.Now - _discardStartTime > TimeSpan.FromSeconds(15))
+        var elapsed = DateTime.Now - _discardStartTime;
+        if (elapsed > ConfirmTimeout)
         {
             _log.Warning("Discard confirmation timed out");
             _discardError = "Discard confirmation timed out";
             OnDiscardError?.Invoke(_discardError);
             CancelDiscard();
-            return;
+            return true;
         }
         
         var addon = GetDiscardAddon();
-        if (addon != null)
+        if (addon == null)
         {
-            _log.Information("Found discard dialog, clicking Yes");
-            
-            var selectYesno = (AddonSelectYesno*)addon;
-            if (selectYesno->YesButton != null)
+            if (elapsed > NoDialogTimeout)
             {
-                _log.Information("Yes button found, enabling and clicking");
-                selectYesno->YesButton->AtkComponentBase.SetEnabledState(true);
-                addon->FireCallbackInt(0);
-                
-                _log.Information("Yes button clicked, waiting for response");
-                _confirmRetryCount = 0;
-                _taskManager.EnqueueDelay(500);
-                _taskManager.Enqueue(() => WaitForDiscardComplete());
+                _log.Warning("No discard dialog found, assuming no confirmation needed");
+                _discardStartTime = DateTime.Now;
+                _taskManager.Enqueue(WaitForItemGone, PollConfig);
             }
-            else
-            {
-                _log.Warning("Yes button not found in dialog");
-                _confirmRetryCount++;
-                if (_confirmRetryCount > 10)
-                {
-                    _log.Error("Too many retries trying to find Yes button");
-                    _discardError = "Could not find Yes button in dialog";
-                    OnDiscardError?.Invoke(_discardError);
-                    CancelDiscard();
-                    return;
-                }
-                _taskManager.EnqueueDelay(100);
-                _taskManager.Enqueue(() => ConfirmDiscard());
-            }
+            return elapsed > NoDialogTimeout;
         }
-        else
+        
+        var selectYesno = (AddonSelectYesno*)addon;
+        if (selectYesno->YesButton == null)
         {
-            _confirmRetryCount++;
-            if (_confirmRetryCount > 50)
+            _yesMissingSince ??= DateTime.Now;
+            if (DateTime.Now - _yesMissingSince > YesButtonTimeout)
             {
-                _log.Warning("No discard dialog found after many retries, assuming no confirmation needed");
-                _confirmRetryCount = 0;
-                _taskManager.EnqueueDelay(200);
-                _taskManager.Enqueue(() => DiscardNextItem());
+                _log.Error("Yes button never appeared in discard dialog");
+                _discardError = "Could not find Yes button in dialog";
+                OnDiscardError?.Invoke(_discardError);
+                CancelDiscard();
+                return true;
             }
-            else
-            {
-                _log.Information("No discard dialog found yet, retrying");
-                _taskManager.EnqueueDelay(100);
-                _taskManager.Enqueue(() => ConfirmDiscard());
-            }
+            return false;
         }
+        
+        _log.Information("Found discard dialog, clicking Yes");
+        selectYesno->YesButton->AtkComponentBase.SetEnabledState(true);
+        addon->FireCallbackInt(0);
+        
+        _discardStartTime = DateTime.Now;
+        _taskManager.Enqueue(WaitForItemGone, PollConfig);
+        return true;
     }
     
-    private unsafe void WaitForDiscardComplete()
+    private unsafe bool WaitForItemGone()
     {
-        _log.Information("WaitForDiscardComplete called");
+        var item = _itemsToDiscard[_discardProgress - 1];
+        var gone = GetDiscardAddon() == null && !IsItemStillInSlot(item);
+        var timedOut = DateTime.Now - _discardStartTime > ItemGoneTimeout;
         
-        var addon = GetDiscardAddon();
-        if (addon != null)
-        {
-            _log.Information("Dialog still visible, waiting longer");
-            _taskManager.EnqueueDelay(100);
-            _taskManager.Enqueue(() => WaitForDiscardComplete());
-        }
-        else
-        {
-            _log.Information("Dialog dismissed, continuing to next item");
-            _taskManager.EnqueueDelay(200);
-            _taskManager.Enqueue(() => DiscardNextItem());
-        }
+        if (!gone && !timedOut)
+            return false;
+        
+        if (timedOut)
+            _log.Warning($"{item.Name} still in its slot after discard, continuing anyway");
+        
+        _taskManager.EnqueueDelay(SettleDelayMs);
+        _taskManager.Enqueue(DiscardNextItem);
+        return true;
+    }
+    
+    private static unsafe bool IsItemStillInSlot(InventoryItemInfo item)
+    {
+        var container = InventoryManager.Instance()->GetInventoryContainer(item.Container);
+        if (container == null) return false;
+        var slot = container->GetInventorySlot(item.Slot);
+        return slot != null && slot->ItemId == item.ItemId;
     }
     
     private unsafe AtkUnitBase* GetDiscardAddon()
@@ -245,7 +242,7 @@ public class DiscardService : IDisposable
             try
             {
                 var addonPtr = _gameGui.GetAddonByName("SelectYesno", i);
-                if (addonPtr.IsNull) continue;
+                if (addonPtr.IsNull) break;
                 var addon = (AtkUnitBase*)addonPtr.Address;
                 if (addon == null) return null;
                 
@@ -255,12 +252,12 @@ public class DiscardService : IDisposable
                     if (textNode != null)
                     {
                         var text = textNode->NodeText.ToString();
-                        _log.Information($"YesNo dialog text: {text}");
+                        _log.Verbose($"YesNo dialog text: {text}");
                         
                         if (text.Contains("Discard", StringComparison.OrdinalIgnoreCase) || 
                             text.Contains("discard", StringComparison.OrdinalIgnoreCase))
                         {
-                            _log.Information("Found discard confirmation dialog");
+                            _log.Verbose("Found discard confirmation dialog");
                             return addon;
                         }
                     }
@@ -273,7 +270,7 @@ public class DiscardService : IDisposable
             }
         }
         
-        _log.Information("No discard dialog found");
+        _log.Verbose("No discard dialog found");
         return null;
     }
     

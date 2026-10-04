@@ -133,8 +133,13 @@ internal class InventorySettingsWindow : Window, IDisposable
 
         using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
         {
-            ImGui.TextWrapped("Pull your blacklist and auto-discard list from a URL (e.g. a raw file in a git repo) to share them between installs. While enabled, the remote file replaces your local lists — they're backed up first.");
+            ImGui.TextWrapped("Pull your blacklist and auto-discard list from a URL (e.g. a raw file in a git repo) to share them between installs. While enabled, the remote file replaces your local lists. Your current lists are backed up first.");
         }
+        ImGui.Spacing();
+
+        if (ImGui.Button("Show file template"))
+            ImGui.OpenPopup("ListSyncTemplate");
+        DrawTemplatePopup();
         ImGui.Spacing();
 
         using (ImRaii.Disabled(sync.Enabled))
@@ -226,6 +231,35 @@ internal class InventorySettingsWindow : Window, IDisposable
         {
             ImGui.TextColored(Theme.ColorSubdued, $"Last checked {sync.LastCheckedAt:MMM d HH:mm}");
         }
+    }
+
+    private static readonly string SyncFileTemplate =
+        ListSyncService.Export(new HashSet<uint>(), new HashSet<uint>(), "My wahventory lists", 1);
+
+    private static void DrawTemplatePopup()
+    {
+        using var popup = ImRaii.PopupModal("ListSyncTemplate", ImGuiWindowFlags.AlwaysAutoResize);
+        if (!popup) return;
+
+        ImGui.Text("List sync file template");
+        using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
+        {
+            ImGui.Text("Keep both lists in the file. A missing list is treated as empty.");
+            ImGui.Text("Use \"Copy as sync file\" in the Lists window to fill it with your current items.");
+        }
+        ImGui.Spacing();
+
+        using (ImRaii.Child("##templateText", new Vector2(360, 140), true))
+        {
+            ImGui.TextUnformatted(SyncFileTemplate);
+        }
+        ImGui.Spacing();
+
+        if (ImGui.Button("Copy", new Vector2(110, 0)))
+            ImGui.SetClipboardText(SyncFileTemplate);
+        ImGui.SameLine();
+        if (ImGui.Button("Close", new Vector2(110, 0)))
+            ImGui.CloseCurrentPopup();
     }
 
     private void DrawDisableSyncPopup(ListSyncController controller)
