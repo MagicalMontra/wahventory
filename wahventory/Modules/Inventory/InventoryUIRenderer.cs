@@ -348,7 +348,7 @@ internal sealed class InventoryUIRenderer
             }
             ImGui.SameLine();
             var locked = _module.ListsLocked;
-            const string lockedTip = "Lists are synced from a URL — edit the source file instead.";
+            const string lockedTip = "Lists are synced from a URL. Edit the source file instead.";
             using (ImRaii.Disabled(locked))
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.227f, 0.227f, 0.541f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.327f, 0.327f, 0.641f, 1f)))

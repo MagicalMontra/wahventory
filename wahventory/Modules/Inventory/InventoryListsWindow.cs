@@ -81,7 +81,7 @@ internal class InventoryListsWindow : Window, IDisposable
             var name = string.IsNullOrWhiteSpace(sync.RemoteName) ? sync.Url : sync.RemoteName;
             using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
             {
-                ImGui.Text($"Synced from {name} — edit the source file to change these lists.");
+                ImGui.Text($"Synced from {name}. Edit the source file to change these lists.");
             }
             if (ImGui.IsItemHovered()) ImGui.SetTooltip(sync.Url);
             ImGui.SameLine();
