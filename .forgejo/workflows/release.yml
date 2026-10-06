@@ -91,3 +91,21 @@ jobs:
           curl -sS --fail-with-body -X POST "${auth[@]}" \
             -F "attachment=@$OUT/$INTERNAL.json" "$API/releases/$ID/assets?name=$INTERNAL.json" > /dev/null
           echo "$TAG: uploaded latest.zip + $INTERNAL.json"
+
+      - name: Refresh the plugin list
+        if: steps.gate.outputs.release == 'yes'
+        env:
+          TOKEN: ${{ secrets.PLUGINS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${TOKEN:-}" ] || { echo "no PLUGINS_TOKEN, the list refreshes on its own at :17"; exit 0; }
+          API="${GITHUB_SERVER_URL%/}/api/v1/repos/wah/plugins"
+          auth=(-H "Authorization: token $TOKEN")
+          queued=$(curl -sS "${auth[@]}" "$API/actions/runs?workflow_id=update.yml&status=waiting" | jq '.workflow_runs | length')
+          if [ "$queued" -gt 0 ]; then
+            echo "a list update is already queued and will pick this release up"
+            exit 0
+          fi
+          curl -sS --fail-with-body -X POST "${auth[@]}" -H 'Content-Type: application/json' \
+            -d '{"ref":"main"}' "$API/actions/workflows/update.yml/dispatches" > /dev/null
+          echo "queued an update of the plugin list"
