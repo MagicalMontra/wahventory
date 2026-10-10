@@ -80,7 +80,7 @@ public sealed class Plugin : IDalamudPlugin
 
         Services.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the wahventory window\n/wahventory auto - Execute auto-discard for configured items"
+            HelpMessage = "Open the wahventory window\n/wahventory refresh - Refresh inventory without opening the window\n/wahventory auto - Execute auto-discard for configured items"
         });
 
         Services.PluginInterface.UiBuilder.Draw += DrawUI;
@@ -108,9 +108,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        var trimmedArgs = args?.Trim().ToLower() ?? "";
+        var trimmedArgs = args?.Trim().ToLowerInvariant() ?? "";
 
-        if (trimmedArgs == "auto")
+        if (trimmedArgs == "refresh")
+        {
+            InventoryModule.RefreshInventory();
+            Services.ChatGui.Print("[wahventory] Inventory refreshed.");
+        }
+        else if (trimmedArgs == "auto")
         {
             InventoryModule.ExecuteAutoDiscard();
         }
