@@ -2,6 +2,29 @@
 
 Inventory management plugin for Dalamud. This fork adds an inventory refresh command.
 
+## Install in Dalamud
+
+Add this URL in Dalamud Settings > Experimental > Custom Plugin Repositories:
+
+```text
+https://raw.githubusercontent.com/MagicalMontra/wahventory/main/repo.json
+```
+
+Save, refresh the plugin installer, and look for **wahventory (Refresh Fork)**.
+The fork uses the same plugin identity and configuration as upstream, so it
+replaces the original plugin. Run one version at a time.
+
+If upstream wahventory is already installed, disable and uninstall that plugin
+first, keeping its configuration. Then install **wahventory (Refresh Fork)**
+from the new repository. Do not choose **Delete plugin configuration**. Dalamud
+remembers the repository used for installation, so adding the new URL alone
+will not switch an existing upstream installation to this fork. You can keep
+wah's original repository for its other plugins.
+
+Release packages are available on [GitHub Releases](https://github.com/MagicalMontra/wahventory/releases).
+
+## Commands
+
 | Command | Action |
 | --- | --- |
 | `/wahventory` | Toggle the main window. |

@@ -2,19 +2,20 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
     <Author>wah</Author>
-    <Name>wahventory</Name>
+    <Name>wahventory (Refresh Fork)</Name>
     <Punchline>Advanced inventory management with safety filters and auto-discard</Punchline>
     <Description>An inventory management plugin
 • Smart safety filters
 • Market price integration via Universalis
 • Bulk discard functionality
 • Category grouping and search
-• Gearset protection</Description>
-    <RepoUrl>https://git.wahapp.com/wah/wahventory</RepoUrl>
+• Gearset protection
+• /wahventory refresh command (MagicalMontra fork)</Description>
+    <RepoUrl>https://github.com/MagicalMontra/wahventory</RepoUrl>
     <Tags>inventory;management;discard;filter;utility</Tags>
     <ApplicableVersion>any</ApplicableVersion>
     <AssemblyName>wahventory</AssemblyName>
-    <Version>20.0.0.1</Version>
+    <Version>20.0.0.5</Version>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CS8600</NoWarn>

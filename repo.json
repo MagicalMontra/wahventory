@@ -1,0 +1,32 @@
+[
+  {
+    "Author": "wah",
+    "Name": "wahventory (Refresh Fork)",
+    "InternalName": "wahventory",
+    "AssemblyVersion": "20.0.0.5",
+    "Description": "An inventory management plugin\r\n• Smart safety filters\r\n• Market price integration via Universalis\r\n• Bulk discard functionality\r\n• Category grouping and search\r\n• Gearset protection\r\n• /wahventory refresh command (MagicalMontra fork)",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/MagicalMontra/wahventory",
+    "Tags": [
+      "inventory",
+      "management",
+      "discard",
+      "filter",
+      "utility"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "Advanced inventory management with safety filters and auto-discard",
+    "AcceptsFeedback": true,
+    "LastUpdate": 1791661591,
+    "Changelog": "Adds /wahventory refresh to rescan inventory with the window closed.",
+    "DownloadLinkTesting": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip",
+    "IsTestingExclusive": false,
+    "IsHide": false,
+    "DownloadLinkUpdate": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip",
+    "DownloadLinkInstall": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip"
+  }
+]
