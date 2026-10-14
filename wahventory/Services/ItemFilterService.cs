@@ -65,8 +65,8 @@ public class ItemFilterService
         if (filters.FilterCollectables)
             filtered = filtered.Where(i => !i.IsCollectable);
 
-        if (priceFiltersReady)
-            filtered = filtered.Where(i => !MatchesPriceFilter(i, filters));
+        if (priceFiltersReady && HasEnabledPriceFilter(filters))
+            filtered = filtered.Where(i => MatchesPriceFilter(i, filters));
 
         return filtered;
     }
@@ -104,7 +104,7 @@ public class ItemFilterService
         if (filters.FilterCollectables && item.IsCollectable)
             return true;
 
-        if (priceFiltersReady && MatchesPriceFilter(item, filters))
+        if (priceFiltersReady && HasEnabledPriceFilter(filters) && !MatchesPriceFilter(item, filters))
             return true;
 
         return false;
@@ -158,10 +158,13 @@ public class ItemFilterService
 
     private static bool HasKnownMarketPrice(InventoryItemInfo item) => item.MarketPrice is > 0;
 
+    private static bool HasEnabledPriceFilter(SafetyFilters filters) =>
+        filters.FilterMarketPriceAbove || filters.FilterMarketPriceBelow;
+
     private static bool MatchesPriceFilter(InventoryItemInfo item, SafetyFilters filters)
     {
         // Null, zero, and the existing -1 unavailable sentinel never become a
-        // fictitious zero-gil price. This is a display filter, not a safety rule.
+        // fictitious zero-gil price and cannot satisfy a show-only price condition.
         if (!HasKnownMarketPrice(item)) return false;
         var price = item.MarketPrice!.Value;
         return (filters.FilterMarketPriceAbove && price > Math.Max(0, filters.MarketPriceAboveThreshold)) ||

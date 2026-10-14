@@ -18,7 +18,7 @@
     <Tags>inventory;management;discard;filter;utility</Tags>
     <ApplicableVersion>any</ApplicableVersion>
     <AssemblyName>wahventory</AssemblyName>
-    <Version>20.0.0.8</Version>
+    <Version>20.0.0.9</Version>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CS8600</NoWarn>

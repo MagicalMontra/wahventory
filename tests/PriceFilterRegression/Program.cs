@@ -31,11 +31,11 @@ Equal(new InventorySettings().PriceMethod, MarketPriceMethod.LowestListing, "Exi
 var values = new long?[] { null, -1, 0, 99, 100, 101, 999, 1000, 1001, long.MaxValue };
 var items = values.Select((price, index) => Item((uint)(10000 + index), price, 999)).ToList();
 var f = Filters(); f.FilterMarketPriceAbove = true; f.MarketPriceAboveThreshold = 1000;
-Ids(Visible(items, f), items.Take(8).Select(i => i.ItemId), "Above hides only strict matches, retaining equal, unknown, and cheap large stacks");
+Ids(Visible(items, f), items.Skip(8).Select(i => i.ItemId), "Above shows only strictly more expensive known unit prices; equality and unknowns do not match");
 f.FilterMarketPriceAbove = false; f.FilterMarketPriceBelow = true; f.MarketPriceBelowThreshold = 100;
-Ids(Visible(items, f), items.Where(i => i.MarketPrice != 99).Select(i => i.ItemId), "Below hides strict matches while equal and unavailable prices remain visible");
+Ids(Visible(items, f), new uint[] { 10003 }, "Below shows only known positive prices strictly below the threshold");
 f.FilterMarketPriceAbove = true;
-Ids(Visible(items, f), items.Where(i => i.MarketPrice != 99 && i.MarketPrice <= 1000 || i.MarketPrice == null).Select(i => i.ItemId), "Both filters hide their union, leaving the inclusive price band and unknowns");
+Ids(Visible(items, f), new uint[] { 10003, 10008, 10009 }, "Both filters show the OR union of strict low/high matches and exclude the middle band and unknowns");
 Ids(Visible(items, f, false), items.Select(i => i.ItemId), "Saved enabled price filters are bypassed before refresh is complete");
 Ids(service.ApplyFilters(items, f, blacklist).Select(i => i.ItemId), items.Select(i => i.ItemId), "Readiness defaults false, preventing implicit partial-price filtering");
 
@@ -50,22 +50,37 @@ foreach (var threshold in new long[] { 0, 100, 1000, long.MaxValue })
     foreach (var item in items)
     {
         var known = item.MarketPrice is > 0;
-        var hidden = ready && known && ((above && item.MarketPrice > threshold) || (below && item.MarketPrice < threshold));
-        Equal(visible.Contains(item.ItemId), !hidden, "Strict threshold matrix visibility");
-        Equal(service.IsItemFiltered(item, f, blacklist, ready), hidden, "Single-item and list filters agree");
+        var match = known && ((above && item.MarketPrice > threshold) || (below && item.MarketPrice < threshold));
+        var shouldShow = !ready || (!above && !below) || match;
+        Equal(visible.Contains(item.ItemId), shouldShow, "Strict threshold matrix visibility");
+        Equal(service.IsItemFiltered(item, f, blacklist, ready), !shouldShow, "Single-item filtering is the complement of shown matches");
     }
     Ids(service.GetProtectedItems(items, f, blacklist, ready).Select(i => i.ItemId), items.Where(i => !visible.Contains(i.ItemId)).Select(i => i.ItemId), "Hidden-items view uses the same readiness and thresholds");
 }
 f = Filters(); f.MarketPriceAboveThreshold = 1000; f.MarketPriceBelowThreshold = 100;
 var counts = service.CountHiddenPerFilter(items, f, true);
-Equal(counts.MarketPriceAbove, 2, "Above count is independent of checkbox state");
-Equal(counts.MarketPriceBelow, 1, "Below count is independent of checkbox state and ignores unknowns");
+Equal(counts.MarketPriceAbove, 2, "Above count reports matches independently of checkbox state");
+Equal(counts.MarketPriceBelow, 1, "Below count reports matches independently of checkbox state and ignores unknowns");
 Equal(service.CountHiddenPerFilter(items, f).MarketPriceAbove, 0, "Unready count does not imply a price filter is active");
 
 f.FilterMarketPriceBelow = true; f.MarketPriceBelowThreshold = -10;
-Equal(Visible(items, f).Length, items.Count, "Corrupt negative below threshold is clamped to zero without hiding unknowns");
+Equal(Visible(items, f).Length, 0, "Corrupt negative below threshold clamps to zero, which no positive price matches");
 f.FilterMarketPriceAbove = true; f.MarketPriceAboveThreshold = -10;
-Ids(Visible(items, f), items.Take(3).Select(i => i.ItemId), "Negative above threshold cannot overflow or convert unavailable prices to known prices");
+Ids(Visible(items, f), items.Skip(3).Select(i => i.ItemId), "Clamped above-zero condition shows all positive prices without inventing unavailable prices");
+
+var examples = new[]
+{
+    Item(24000, 400, 999), Item(24001, 499, 2), Item(24002, 500),
+    Item(24003, 1000), Item(24004, 1001), Item(24005, null), Item(24006, -1),
+};
+f = Filters(); f.FilterMarketPriceBelow = true; f.MarketPriceBelowThreshold = 500;
+Ids(Visible(examples, f), new uint[] { 24000, 24001 }, "User example <500 shows cheap unit prices even when a stack is worth hundreds of thousands");
+f.FilterMarketPriceBelow = false; f.FilterMarketPriceAbove = true; f.MarketPriceAboveThreshold = 1000;
+Ids(Visible(examples, f), new uint[] { 24004 }, "User example >1000 shows only strict high unit prices");
+f.FilterMarketPriceBelow = true;
+Ids(Visible(examples, f), new uint[] { 24000, 24001, 24004 }, "User examples together show <500 OR >1000, excluding both equal boundaries and unknowns");
+f.FilterMarketPriceBelow = false; f.FilterMarketPriceAbove = false;
+Ids(Visible(examples, f), examples.Select(i => i.ItemId), "Completed prices with no enabled price filters preserve unknown rows and all ordinary items");
 
 f = Filters(); f.FilterMarketPriceAbove = true; f.MarketPriceAboveThreshold = 1000;
 var normal = Item(20000, 100, 2); var normal2 = Item(20000, 100, 3); var high = Item(20000, 1000, 7, true);
@@ -89,7 +104,12 @@ Equal(normalGroup.MarketPriceMethodName, normal.MarketPriceMethodName, "Grouped 
 f.MarketPriceAboveThreshold = 500;
 var filteredGroup = service.GroupIntoCategories(service.ApplyFilters(new[] { normal, normal2, high }, f, blacklist, priceFiltersReady: true)).Single();
 Equal(filteredGroup.Items.Count, 1, "Filtering before grouping retains only the matching quality's visible stacks");
-Equal(filteredGroup.TotalValue, 500L, "Hidden HQ value cannot leak into displayed NQ total");
+Check(filteredGroup.Items.Single().IsHQ, "Above500 shows the 1000-gil HQ quality rather than the 100-gil NQ quality");
+Equal(filteredGroup.TotalValue, 7000L, "Displayed HQ total cannot include nonmatching NQ stacks");
+f.FilterMarketPriceAbove = false; f.FilterMarketPriceBelow = true; f.MarketPriceBelowThreshold = 500;
+var lowGroup = service.GroupIntoCategories(service.ApplyFilters(new[] { normal, normal2, high }, f, blacklist, priceFiltersReady: true)).Single();
+Check(!lowGroup.Items.Single().IsHQ && lowGroup.Items.Single().Quantity == 5, "Below500 shows only the matching NQ stacks for the same base ID");
+Equal(lowGroup.TotalValue, 500L, "Displayed NQ total cannot include nonmatching HQ stacks");
 
 f = Filters(); f.FilterHQItems = true; f.FilterMarketPriceBelow = true; f.MarketPriceBelowThreshold = 100;
 Check(!Visible(new[] { high }, f, false).Any(), "Existing HQ filter works while price filters are pending");

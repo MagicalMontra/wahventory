@@ -43,17 +43,20 @@ List rules apply to the item type, including both normal and HQ copies. Existing
 safety filters continue to apply. List edits are unavailable while a discard is
 active or list sync is enabled. Manage existing entries in **Lists**.
 
-## Market prices and filters (20.0.0.8)
+## Market prices and filters (20.0.0.9)
 
-The sidebar has **Market price >** and **Market price <** controls. Each hides
-matching items using **gil per item**, with strict comparisons; equal prices
-remain visible. Both controls and their thresholds are disabled until all price
-requests for the current inventory, world and price method finish.
+The sidebar has **Market price >** and **Market price <** controls. Each shows
+matching items using **gil per item**, with strict comparisons. For example,
+**Market price < 500** shows unit prices below 500 gil, regardless of stack size;
+**Market price > 1000** shows unit prices above 1,000 gil. With both enabled,
+either matching condition includes the item. Equal prices do not match that
+condition. Both controls and thresholds are disabled until all price requests for
+the current inventory, world and price method finish.
 
-Unknown prices remain visible as **No data**. With either price filter enabled,
-discard operations wait for pricing, and unknown prices are excluded from the
-discard queue. Hidden HQ stacks cannot be discarded through a selected normal
-stack of the same item.
+With no price filter enabled, unknown prices appear as **No data**. With a price
+filter enabled, only matching known prices appear, and discard operations wait
+for pricing. A selected stack cannot pull a price-excluded normal or HQ stack of
+the same item into the discard queue.
 
 **Settings > Market Prices > Price method** offers **Lowest current listing**
 and **Average sale price (4 days)**. Both use Universalis for the selected world

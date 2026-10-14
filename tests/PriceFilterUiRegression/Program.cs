@@ -41,7 +41,7 @@ foreach (var ready in new bool?[] { false, null })
     ImGui.Reset(); events = 0;
     AttemptAllPriceEdits();
     ImGui.Hovered.UnionWith(new[] { "Market price >", "Market price <" });
-    Frame(ready, "Refreshing 1/7 · unknown prices stay visible.");
+    Frame(ready, "Refreshing 1/7 · saved price filters are paused.");
     foreach (var label in priceLabels)
     {
         var visit = ImGui.Visits.Single(v => v.Label == label);
@@ -55,7 +55,7 @@ foreach (var ready in new bool?[] { false, null })
     Check(ImGui.Texts.Contains("4 / 8 active"), "Paused saved price filters are excluded from active count");
     Check(ImGui.Tooltips.Count == 2 && ImGui.Tooltips.All(t => t.Contains("paused while prices are loading")),
         "Disabled hover explains price filters are paused");
-    Check(ImGui.Texts.Contains(ready.HasValue ? "Refreshing 1/7 · unknown prices stay visible." : "Refresh market prices to use price filters."),
+    Check(ImGui.Texts.Contains(ready.HasValue ? "Refreshing 1/7 · saved price filters are paused." : "Refresh market prices to use price filters."),
         "Refresh/default unknown readiness status remains visible");
 }
 
@@ -68,7 +68,7 @@ settings.SafetyFilters.FilterHQItems = false;
 
 // Ready makes both checkbox/input pairs usable; a multi-edit frame emits once.
 ImGui.Reset(); events = 0; AttemptAllPriceEdits();
-Frame(true, "7/7 checked · 2 unknown prices stay visible.");
+Frame(true, "7/7 checked · unknown prices are excluded by active price filters.");
 foreach (var label in priceLabels)
     Check(!ImGui.Visits.Single(v => v.Label == label).Disabled && ImGui.Visits.Single(v => v.Label == label).Changed,
         "Ready production control accepts actual edit: " + label);
@@ -77,7 +77,7 @@ Check(!settings.SafetyFilters.FilterMarketPriceAbove && !settings.SafetyFilters.
 Check(settings.SafetyFilters.MarketPriceAboveThreshold == 4321 && settings.SafetyFilters.MarketPriceBelowThreshold == 123,
     "Edited thresholds persist");
 Check(events == 1, "Multiple genuine edits emit one change event per frame");
-Check(ImGui.Texts.Contains("7/7 checked · 2 unknown prices stay visible."), "Completed refresh still explains unknown values");
+Check(ImGui.Texts.Contains("7/7 checked · unknown prices are excluded by active price filters."), "Completed refresh status reaches the sidebar without altering its meaning");
 Check(!ImGui.Visits.Any(v => v.Label.Contains(">=") || v.Label.Contains("<=")), "Production labels preserve strict greater/less comparisons");
 
 // No-edit and attempted-identical values leave config/event state unchanged.
@@ -93,8 +93,8 @@ Check(settings.SafetyFilters.MarketPriceAboveThreshold == 4321 && settings.Safet
 ImGui.Reset(); events = 0;
 ImGui.Hovered.UnionWith(new[] { "Market price >", "Market price <" });
 Frame(true, "");
-Check(ImGui.Tooltips.Count == 2 && ImGui.Tooltips.All(t => t.Contains("gil per item") && t.Contains("Equal prices stay visible") && t.Contains("Unknown prices stay visible")),
-    "Ready tooltips explain units, strict equality and unknown status");
+Check(ImGui.Tooltips.Count == 2 && ImGui.Tooltips.All(t => t.Contains("Show matching") && t.Contains("gil per item") && t.Contains("Equal prices do not match this condition") && t.Contains("Unknown prices are excluded")),
+    "Ready tooltips explain show-matching semantics, units, strict equality and unknown exclusion");
 Check(ImGui.Tooltips.Any(t => t.Contains("3 items match")) && ImGui.Tooltips.Any(t => t.Contains("5 items match")),
     "Independent production count fields reach their matching price tooltips");
 Check(!ImGui.Texts.Contains(""), "Empty custom refresh status is omitted");

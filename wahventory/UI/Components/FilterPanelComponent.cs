@@ -109,7 +109,7 @@ public class FilterPanelComponent
             }
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                 ImGui.SetTooltip(ready
-                    ? $"Hide matching items using gil per item, not the stack total. Equal prices stay visible. Unknown prices stay visible.\n{count.GetValueOrDefault()} items match this threshold."
+                    ? $"Show matching items using gil per item, not the stack total. Equal prices do not match this condition. Unknown prices are excluded.\n{count.GetValueOrDefault()} items match this threshold."
                     : "Wait until the current inventory price refresh finishes. Saved price filters are paused while prices are loading.");
             ImGui.SameLine();
             ImGui.SetNextItemWidth(Math.Max(60, ImGui.GetContentRegionAvail().X - 4));
