@@ -25,6 +25,7 @@ public class DiscardService : IDisposable
     private DateTime _discardStartTime = DateTime.MinValue;
     private DateTime? _yesMissingSince = null;
     private bool _isDiscarding = false;
+    private bool _queueStarted;
     
     private static readonly TimeSpan ConfirmTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan NoDialogTimeout = TimeSpan.FromSeconds(5);
@@ -41,6 +42,7 @@ public class DiscardService : IDisposable
     public event Action<string>? OnDiscardError;
     
     public bool IsDiscarding => _isDiscarding;
+    public bool HasStarted => _queueStarted;
     public int DiscardProgress => _discardProgress;
     public int TotalItems => _itemsToDiscard.Count;
     public string? DiscardError => _discardError;
@@ -59,15 +61,17 @@ public class DiscardService : IDisposable
         _taskManager = new TaskManager();
     }
     
-    public void PrepareDiscard(
+    public int PrepareDiscard(
         IEnumerable<uint> selectedItemIds,
         IEnumerable<InventoryItemInfo> allItems,
         HashSet<uint> blacklistedItems,
         bool autoStart = false)
     {
+        if (_isDiscarding)
+            throw new InvalidOperationException("A discard operation is already running.");
         var actualItemsToDiscard = new List<InventoryItemInfo>();
 
-        foreach (var selectedItemId in selectedItemIds)
+        foreach (var selectedItemId in selectedItemIds.Distinct())
         {
             var actualItems = allItems.Where(i =>
                 i.ItemId == selectedItemId &&
@@ -77,7 +81,7 @@ public class DiscardService : IDisposable
             actualItemsToDiscard.AddRange(actualItems);
         }
 
-        _itemsToDiscard = actualItemsToDiscard;
+        _itemsToDiscard = actualItemsToDiscard.DistinctBy(i => (i.Container, i.Slot)).ToList();
         _log.Information($"Items to discard after filtering: {_itemsToDiscard.Count}");
 
         if (_itemsToDiscard.Count > 0)
@@ -85,8 +89,9 @@ public class DiscardService : IDisposable
             _isDiscarding = true;
             _discardProgress = 0;
             _discardError = null;
+            _queueStarted = false;
             _log.Information("Discard preparation successful");
-            OnDiscardStarted?.Invoke();
+            NotifyObservers(OnDiscardStarted);
             if (autoStart)
             {
                 StartDiscarding();
@@ -97,10 +102,12 @@ public class DiscardService : IDisposable
             _log.Warning("No items to discard after filtering");
             _chatGui.PrintError("No items selected for discard or all selected items cannot be safely discarded.");
         }
+        return _itemsToDiscard.Count;
     }
     
     public void StartDiscarding()
     {
+        if (_queueStarted) return;
         if (_itemsToDiscard.Count == 0)
         {
             _chatGui.PrintError("No items to discard.");
@@ -108,6 +115,7 @@ public class DiscardService : IDisposable
         }
         
         _log.Information($"StartDiscarding called. Items to discard: {_itemsToDiscard.Count}");
+        _queueStarted = true;
         _taskManager.Abort();
         _taskManager.Enqueue(() => DiscardNextItem());
         _log.Information("Discard task enqueued");
@@ -115,27 +123,61 @@ public class DiscardService : IDisposable
     
     public void CancelDiscard()
     {
+        if (!_isDiscarding) return;
         _taskManager.Abort();
         _isDiscarding = false;
+        _queueStarted = false;
+        NotifyObservers(OnDiscardCancelled);
+        ClearQueue();
+    }
+
+    private void ClearQueue()
+    {
         _itemsToDiscard.Clear();
         _discardProgress = 0;
-        _discardError = null;
         _yesMissingSince = null;
         _discardStartTime = DateTime.MinValue;
-        
-        OnDiscardCancelled?.Invoke();
+    }
+
+    private void NotifyObservers(Action? handlers)
+    {
+        if (handlers == null) return;
+        foreach (Action handler in handlers.GetInvocationList())
+        {
+            try { handler(); }
+            catch (Exception ex) { _log.Error(ex, "Discard observer failed"); }
+        }
+    }
+
+    private void FailDiscard(string message)
+    {
+        if (!_isDiscarding) return;
+        _discardError = message;
+        _taskManager.Abort();
+        _isDiscarding = false;
+        _queueStarted = false;
+        _chatGui.PrintError($"[wahventory] Discard failed: {message}");
+        if (OnDiscardError != null)
+            foreach (Action<string> handler in OnDiscardError.GetInvocationList())
+            {
+                try { handler(message); }
+                catch (Exception ex) { _log.Error(ex, "Discard error observer failed"); }
+            }
+        ClearQueue();
     }
     
     private unsafe void DiscardNextItem()
     {
+        if (!_isDiscarding) return;
         _log.Information($"DiscardNextItem called. Progress: {_discardProgress}/{_itemsToDiscard.Count}");
         
         if (_discardProgress >= _itemsToDiscard.Count)
         {
             _chatGui.Print("Finished discarding items.");
             _isDiscarding = false;
-            OnDiscardCompleted?.Invoke();
-            CancelDiscard();
+            _queueStarted = false;
+            NotifyObservers(OnDiscardCompleted);
+            ClearQueue();
             return;
         }
         
@@ -145,8 +187,6 @@ public class DiscardService : IDisposable
         try
         {
             _inventoryHelpers.DiscardItem(item);
-            _discardProgress++;
-            OnDiscardProgress?.Invoke(_discardProgress, _itemsToDiscard.Count);
             _log.Information($"Discard call completed for {item.Name}");
             
             _discardStartTime = DateTime.Now;
@@ -156,21 +196,19 @@ public class DiscardService : IDisposable
         }
         catch (Exception ex)
         {
-            _discardError = $"Failed to discard {item.Name}: {ex.Message}";
-            OnDiscardError?.Invoke(_discardError);
             _log.Error(ex, $"Failed to discard {item.Name}");
+            FailDiscard($"Failed to discard {item.Name}: {ex.Message}");
         }
     }
     
     private unsafe bool ConfirmDiscard()
     {
+        if (!_isDiscarding) return true;
         var elapsed = DateTime.Now - _discardStartTime;
         if (elapsed > ConfirmTimeout)
         {
             _log.Warning("Discard confirmation timed out");
-            _discardError = "Discard confirmation timed out";
-            OnDiscardError?.Invoke(_discardError);
-            CancelDiscard();
+            FailDiscard("Discard confirmation timed out");
             return true;
         }
         
@@ -193,9 +231,7 @@ public class DiscardService : IDisposable
             if (DateTime.Now - _yesMissingSince > YesButtonTimeout)
             {
                 _log.Error("Yes button never appeared in discard dialog");
-                _discardError = "Could not find Yes button in dialog";
-                OnDiscardError?.Invoke(_discardError);
-                CancelDiscard();
+                FailDiscard("Could not find Yes button in dialog");
                 return true;
             }
             return false;
@@ -212,27 +248,45 @@ public class DiscardService : IDisposable
     
     private unsafe bool WaitForItemGone()
     {
-        var item = _itemsToDiscard[_discardProgress - 1];
-        var gone = GetDiscardAddon() == null && !IsItemStillInSlot(item);
+        if (!_isDiscarding) return true;
+        var item = _itemsToDiscard[_discardProgress];
+        var stillInSlot = IsItemStillInSlot(item);
+        var gone = GetDiscardAddon() == null && stillInSlot == false;
         var timedOut = DateTime.Now - _discardStartTime > ItemGoneTimeout;
         
         if (!gone && !timedOut)
             return false;
         
-        if (timedOut)
-            _log.Warning($"{item.Name} still in its slot after discard, continuing anyway");
+        if (!gone)
+        {
+            FailDiscard(stillInSlot == null
+                ? $"Could not verify inventory after discarding {item.Name}."
+                : $"{item.Name} is still in its slot after the discard timeout.");
+            return true;
+        }
+
+        _discardProgress++;
+        if (OnDiscardProgress != null)
+            foreach (Action<int, int> handler in OnDiscardProgress.GetInvocationList())
+            {
+                try { handler(_discardProgress, _itemsToDiscard.Count); }
+                catch (Exception ex) { _log.Error(ex, "Discard progress observer failed"); }
+            }
         
         _taskManager.EnqueueDelay(SettleDelayMs);
         _taskManager.Enqueue(DiscardNextItem);
         return true;
     }
     
-    private static unsafe bool IsItemStillInSlot(InventoryItemInfo item)
+    private static unsafe bool? IsItemStillInSlot(InventoryItemInfo item)
     {
-        var container = InventoryManager.Instance()->GetInventoryContainer(item.Container);
-        if (container == null) return false;
+        var manager = InventoryManager.Instance();
+        if (manager == null) return null;
+        var container = manager->GetInventoryContainer(item.Container);
+        if (container == null || !container->IsLoaded) return null;
         var slot = container->GetInventorySlot(item.Slot);
-        return slot != null && slot->ItemId == item.ItemId;
+        if (slot == null) return null;
+        return slot->ItemId == item.ItemId;
     }
     
     private unsafe AtkUnitBase* GetDiscardAddon()

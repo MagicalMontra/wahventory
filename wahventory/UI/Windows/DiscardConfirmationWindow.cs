@@ -85,7 +85,7 @@ public class DiscardConfirmationWindow : Window, IDisposable
             ImGui.TextColored(Theme.ColorError, _discardService.DiscardError);
         }
 
-        if (_discardService.DiscardProgress > 0)
+        if (_discardService.HasStarted)
         {
             var progress = (float)_discardService.DiscardProgress / _discardService.TotalItems;
             using (var color = ImRaii.PushColor(ImGuiCol.PlotHistogram, Theme.ColorSuccess))
@@ -201,7 +201,7 @@ public class DiscardConfirmationWindow : Window, IDisposable
         var avail = ImGui.GetContentRegionAvail().X;
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0, avail - rowWidth));
 
-        if (_discardService.DiscardProgress == 0)
+        if (!_discardService.HasStarted)
         {
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.3f, 0.3f, 0.3f, 0.5f))

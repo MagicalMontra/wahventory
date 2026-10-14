@@ -53,7 +53,7 @@ public unsafe class InventoryHelpers
         _log = log;
     }
     
-    public List<InventoryItemInfo> GetAllItems(bool includeArmory = false, bool includeSaddlebag = false)
+    public List<InventoryItemInfo> GetAllItems(bool includeArmory = false, bool includeSaddlebag = false, bool requireAvailable = false)
     {
         var items = new List<InventoryItemInfo>();
         var inventoryManager = InventoryManager.Instance();
@@ -61,39 +61,49 @@ public unsafe class InventoryHelpers
         if (inventoryManager == null)
         {
             _log.Error("InventoryManager is null");
+            if (requireAvailable) throw new InvalidOperationException("Inventory is not available yet.");
             return items;
         }
         foreach (var inventoryType in MainInventories)
         {
-            AddItemsFromInventory(items, inventoryManager, inventoryType);
+            AddItemsFromInventory(items, inventoryManager, inventoryType, requireAvailable);
         }
         if (includeArmory)
         {
             foreach (var inventoryType in ArmoryInventories)
             {
-                AddItemsFromInventory(items, inventoryManager, inventoryType);
+                AddItemsFromInventory(items, inventoryManager, inventoryType, requireAvailable);
             }
         }
         if (includeSaddlebag)
         {
             foreach (var inventoryType in SaddlebagInventories)
             {
-                AddItemsFromInventory(items, inventoryManager, inventoryType);
+                AddItemsFromInventory(items, inventoryManager, inventoryType, requireAvailable);
             }
         }
         
         return items;
     }
     
-    private void AddItemsFromInventory(List<InventoryItemInfo> items, InventoryManager* inventoryManager, InventoryType inventoryType)
+    private void AddItemsFromInventory(List<InventoryItemInfo> items, InventoryManager* inventoryManager, InventoryType inventoryType, bool requireAvailable)
     {
         var container = inventoryManager->GetInventoryContainer(inventoryType);
-        if (container == null || container->Size == 0) return;
+        if (container == null || container->Size == 0 || (requireAvailable && !container->IsLoaded))
+        {
+            if (requireAvailable) throw new InvalidOperationException($"Inventory container {inventoryType} is not available yet.");
+            return;
+        }
         
         for (var i = 0; i < container->Size; i++)
         {
             var slot = container->GetInventorySlot(i);
-            if (slot == null || slot->ItemId == 0) continue;
+            if (slot == null)
+            {
+                if (requireAvailable) throw new InvalidOperationException($"Inventory slot {inventoryType}/{i} is not available yet.");
+                continue;
+            }
+            if (slot->ItemId == 0) continue;
             
             var itemInfo = CreateItemInfo(slot, inventoryType, (short)i);
             if (itemInfo != null)
@@ -263,9 +273,9 @@ public unsafe class InventoryHelpers
         }
         
         var container = inventoryManager->GetInventoryContainer(item.Container);
-        if (container == null)
+        if (container == null || !container->IsLoaded)
         {
-            throw new InvalidOperationException($"Container {item.Container} not found");
+            throw new InvalidOperationException($"Container {item.Container} is not available.");
         }
         
         var slot = container->GetInventorySlot(item.Slot);

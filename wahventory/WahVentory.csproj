@@ -10,12 +10,13 @@
 • Bulk discard functionality
 • Category grouping and search
 • Gearset protection
-• /wahventory refresh command (MagicalMontra fork)</Description>
+• /wahventory refresh command (MagicalMontra fork)
+• Refresh/discard completion reporting for SND</Description>
     <RepoUrl>https://github.com/MagicalMontra/wahventory</RepoUrl>
     <Tags>inventory;management;discard;filter;utility</Tags>
     <ApplicableVersion>any</ApplicableVersion>
     <AssemblyName>wahventory</AssemblyName>
-    <Version>20.0.0.5</Version>
+    <Version>20.0.0.6</Version>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
     <NoWarn>$(NoWarn);CS8600</NoWarn>

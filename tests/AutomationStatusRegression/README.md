@@ -1,0 +1,1 @@
+Run dotnet run --project tests/AutomationStatusRegression/AutomationStatusRegression.csproj -c Release from the repository root. Tests link the production store and use only temporary files under their build output. No live game actions are performed.

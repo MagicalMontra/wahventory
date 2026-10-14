@@ -271,9 +271,9 @@ public class InventoryManagementModule : IDisposable
         RefreshInventory();
     }
 
-    internal void RefreshInventory()
+    internal void RefreshInventory(bool requireAvailable = false)
     {
-        var newItems = _inventoryHelpers.GetAllItems(_showArmory, false);
+        var newItems = _inventoryHelpers.GetAllItems(_showArmory, false, requireAvailable);
 
         _state.ApplyRefreshAndRecategorize(
             newItems,
@@ -330,23 +330,31 @@ public class InventoryManagementModule : IDisposable
     
     public void ExecuteAutoDiscard()
     {
+        try { StartAutoDiscard(); }
+        catch (Exception ex) { _services.ChatGui.PrintError($"[wahventory] {ex.Message}"); }
+    }
+
+    internal int StartAutoDiscard()
+    {
+        if (DiscardService.IsDiscarding)
+            throw new InvalidOperationException("A discard operation is already running.");
         if (AutoDiscardItems.Count == 0)
         {
-            _services.ChatGui.PrintError("[wahventory] Auto-discard list is empty. Open Lists (toolbar) to add items.");
-            return;
+            throw new InvalidOperationException("Auto-discard list is empty. Open Lists (toolbar) to add items.");
         }
 
+        // Do not report an empty successful queue from stale/unloaded inventory.
+        RefreshInventory(requireAvailable: true);
         var itemsToDiscard = _state.SnapshotAutoDiscardCandidates(AutoDiscardItems, BlacklistedItems);
 
         if (!itemsToDiscard.Any())
         {
-            _services.ChatGui.PrintError("[wahventory] No items on the auto-discard list are currently in inventory.");
-            return;
+            return 0;
         }
 
         var selectedItemIds = itemsToDiscard.Select(i => i.ItemId).Distinct().ToList();
         // Auto-discard list items are pre-approved by being on the list — skip the confirmation step.
-        DiscardService.PrepareDiscard(selectedItemIds, _state.SnapshotOriginalItems(), BlacklistedItems, autoStart: true);
+        return DiscardService.PrepareDiscard(selectedItemIds, _state.SnapshotOriginalItems(), BlacklistedItems, autoStart: true);
     }
 
     internal void AddSelectedToBlacklist()

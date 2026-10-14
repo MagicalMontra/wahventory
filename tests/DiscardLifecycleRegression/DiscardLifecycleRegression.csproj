@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../wahventory/Services/DiscardService.cs" Link="Production/DiscardService.cs" />
+    <Compile Include="../../wahventory/Models/InventoryItemInfo.cs" Link="Production/InventoryItemInfo.cs" />
+  </ItemGroup>
+</Project>

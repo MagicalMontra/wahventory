@@ -1,3 +1,4 @@
+using System;
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -39,6 +40,7 @@ public sealed class Plugin : IDalamudPlugin
     private DiscardConfirmationWindow DiscardConfirmationWindow { get; init; }
 
     private InventoryManagementModule InventoryModule { get; init; }
+    private readonly AutomationStatusStore _automationStatus;
 
     public Plugin()
     {
@@ -63,6 +65,12 @@ public sealed class Plugin : IDalamudPlugin
         ConfigManager = new ConfigurationManager(Services);
 
         InventoryModule = new InventoryManagementModule(this, Services);
+        _automationStatus = new AutomationStatusStore();
+        InventoryModule.DiscardService.OnDiscardStarted += ReportDiscardStarted;
+        InventoryModule.DiscardService.OnDiscardProgress += ReportDiscardProgress;
+        InventoryModule.DiscardService.OnDiscardCompleted += ReportDiscardCompleted;
+        InventoryModule.DiscardService.OnDiscardCancelled += ReportDiscardCancelled;
+        InventoryModule.DiscardService.OnDiscardError += ReportDiscardError;
         MainWindow = new MainWindow(this, InventoryModule);
 
         // Create discard confirmation window with icon cache from module
@@ -80,7 +88,7 @@ public sealed class Plugin : IDalamudPlugin
 
         Services.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the wahventory window\n/wahventory refresh - Refresh inventory without opening the window\n/wahventory auto - Execute auto-discard for configured items"
+            HelpMessage = "Open the wahventory window\n/wahventory refresh - Refresh inventory and report completion\n/wahventory auto - Execute auto-discard and report its result\n/wahventory status - Show refresh and discard status"
         });
 
         Services.PluginInterface.UiBuilder.Draw += DrawUI;
@@ -92,6 +100,15 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Services.Framework.Update -= OnFrameworkUpdate;
+
+        InventoryModule.DiscardService.CancelDiscard();
+        SafeStatus(() => _automationStatus.Cancel("discard", "Wahventory was unloaded."));
+        SafeStatus(() => _automationStatus.Cancel("refresh", "Wahventory was unloaded."));
+        InventoryModule.DiscardService.OnDiscardStarted -= ReportDiscardStarted;
+        InventoryModule.DiscardService.OnDiscardProgress -= ReportDiscardProgress;
+        InventoryModule.DiscardService.OnDiscardCompleted -= ReportDiscardCompleted;
+        InventoryModule.DiscardService.OnDiscardCancelled -= ReportDiscardCancelled;
+        InventoryModule.DiscardService.OnDiscardError -= ReportDiscardError;
 
         WindowSystem.RemoveAllWindows();
 
@@ -112,16 +129,112 @@ public sealed class Plugin : IDalamudPlugin
 
         if (trimmedArgs == "refresh")
         {
-            InventoryModule.RefreshInventory();
-            Services.ChatGui.Print("[wahventory] Inventory refreshed.");
+            RefreshWithStatus();
         }
         else if (trimmedArgs == "auto")
         {
-            InventoryModule.ExecuteAutoDiscard();
+            DiscardWithStatus();
+        }
+        else if (trimmedArgs == "status")
+        {
+            foreach (var operation in new[] { "refresh", "discard" })
+            {
+                var state = _automationStatus.ReadState(operation);
+                Services.ChatGui.Print($"[wahventory] {operation} run {state.RunId}: {state.Status} ({state.Completed}/{state.Total}) {state.Message}");
+            }
         }
         else
         {
             ToggleMainUI();
+        }
+    }
+
+    private void RefreshWithStatus()
+    {
+        if (_automationStatus.IsRunning("refresh"))
+        {
+            Services.ChatGui.PrintError("[wahventory] A refresh is already running.");
+            return;
+        }
+        try
+        {
+            _automationStatus.Begin("refresh");
+            Services.ChatGui.Print("[wahventory] Refresh RUNNING.");
+            if (!Services.PlayerState.IsLoaded || InventoryModule.DiscardService.IsDiscarding)
+                throw new InvalidOperationException("Wait until the character is ready and the current discard finishes before refreshing.");
+            InventoryModule.RefreshInventory(requireAvailable: true);
+            _automationStatus.Complete("refresh", "Inventory refreshed.");
+            Services.ChatGui.Print("[wahventory] Refresh DONE: inventory refreshed.");
+        }
+        catch (Exception ex)
+        {
+            SafeStatus(() => _automationStatus.Fail("refresh", ex.Message));
+            Services.Log.Error(ex, "Inventory refresh failed");
+            Services.ChatGui.PrintError($"[wahventory] Refresh FAILED: {ex.Message}");
+        }
+    }
+
+    private void DiscardWithStatus()
+    {
+        if (InventoryModule.DiscardService.IsDiscarding || _automationStatus.IsRunning("discard"))
+        {
+            Services.ChatGui.PrintError("[wahventory] A discard operation is already running.");
+            return;
+        }
+        try
+        {
+            _automationStatus.Begin("discard");
+            if (!Services.PlayerState.IsLoaded)
+                throw new InvalidOperationException("Wait until the character is ready before discarding.");
+            var queued = InventoryModule.StartAutoDiscard();
+            if (queued == 0)
+            {
+                _automationStatus.Complete("discard", "No eligible items to discard.", 0, 0);
+                Services.ChatGui.Print("[wahventory] Discard DONE: no eligible items to discard.");
+            }
+        }
+        catch (Exception ex)
+        {
+            SafeStatus(() => _automationStatus.Fail("discard", ex.Message));
+            Services.Log.Error(ex, "Auto-discard could not start");
+            Services.ChatGui.PrintError($"[wahventory] Discard FAILED: {ex.Message}");
+        }
+    }
+
+    private void ReportDiscardStarted() => SafeStatus(() =>
+    {
+        var total = InventoryModule.DiscardService.TotalItems;
+        if (!_automationStatus.IsRunning("discard")) _automationStatus.Begin("discard", total);
+        else _automationStatus.Progress("discard", 0, total);
+        Services.ChatGui.Print($"[wahventory] Discard RUNNING: {total} stack(s) queued.");
+    });
+
+    private void ReportDiscardProgress(int completed, int total) =>
+        SafeStatus(() => _automationStatus.Progress("discard", completed, total));
+
+    private void ReportDiscardCompleted() => SafeStatus(() =>
+    {
+        var service = InventoryModule.DiscardService;
+        _automationStatus.Complete("discard", "Discard queue finished.", service.DiscardProgress, service.TotalItems);
+        Services.ChatGui.Print($"[wahventory] Discard DONE: {service.DiscardProgress} stack(s) removed.");
+    });
+
+    private void ReportDiscardCancelled() => SafeStatus(() =>
+    {
+        _automationStatus.Cancel("discard", "Discard operation was cancelled.");
+        Services.ChatGui.Print("[wahventory] Discard CANCELLED.");
+    });
+
+    private void ReportDiscardError(string message) =>
+        SafeStatus(() => _automationStatus.Fail("discard", message));
+
+    private void SafeStatus(Action publish)
+    {
+        try { publish(); }
+        catch (Exception ex)
+        {
+            Services.Log.Error(ex, "Could not publish Wahventory automation status");
+            Services.ChatGui.PrintError("[wahventory] Could not publish completion status; waiting macros will not assume success.");
         }
     }
 
