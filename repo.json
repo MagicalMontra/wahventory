@@ -3,8 +3,8 @@
     "Author": "wah",
     "Name": "wahventory (Refresh Fork)",
     "InternalName": "wahventory",
-    "AssemblyVersion": "20.0.0.6",
-    "Description": "An inventory management plugin\r\n• Smart safety filters\r\n• Market price integration via Universalis\r\n• Bulk discard functionality\r\n• Category grouping and search\r\n• Gearset protection\r\n• /wahventory refresh command (MagicalMontra fork)\r\n• Refresh/discard completion reporting for SND",
+    "AssemblyVersion": "20.0.0.5",
+    "Description": "An inventory management plugin\r\n• Smart safety filters\r\n• Market price integration via Universalis\r\n• Bulk discard functionality\r\n• Category grouping and search\r\n• Gearset protection\r\n• /wahventory refresh command (MagicalMontra fork)",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/MagicalMontra/wahventory",
     "Tags": [
@@ -21,12 +21,12 @@
     "LoadPriority": 0,
     "Punchline": "Advanced inventory management with safety filters and auto-discard",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.6/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.6/latest.zip",
-    "DownloadLinkTesting": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.6/latest.zip",
-    "IsHide": false,
+    "LastUpdate": 1791661591,
+    "Changelog": "Adds /wahventory refresh to rescan inventory with the window closed.",
+    "DownloadLinkTesting": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip",
     "IsTestingExclusive": false,
-    "LastUpdate": 1791976761,
-    "Changelog": "Adds refresh/discard completion reporting for SND and /wahventory status. Discard timeouts fail safely; progress counts confirmed removals."
+    "IsHide": false,
+    "DownloadLinkUpdate": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip",
+    "DownloadLinkInstall": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.5/latest.zip"
   }
 ]
