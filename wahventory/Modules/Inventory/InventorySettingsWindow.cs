@@ -84,10 +84,26 @@ internal class InventorySettingsWindow : Window, IDisposable
         if (ImGui.Checkbox("Show market prices", ref showPrices))
         {
             settings.ShowMarketPrices = showPrices;
+            if (showPrices) _module.RefreshPrices();
             changed = true;
         }
 
-        using (ImRaii.Disabled(!settings.ShowMarketPrices))
+        ImGui.TextColored(Theme.ColorSubdued, "Source: Universalis");
+        ImGui.SetNextItemWidth(240);
+        var priceMethod = settings.PriceMethod == MarketPriceMethod.AverageSalePrice ? 1 : 0;
+        if (ImGui.Combo("Price method", ref priceMethod, new[] { "Lowest current listing", "Average sale price (4 days)" }, 2))
+        {
+            settings.PriceMethod = priceMethod == 1 ? MarketPriceMethod.AverageSalePrice : MarketPriceMethod.LowestListing;
+            _module.RefreshPrices(force: true);
+            changed = true;
+        }
+        using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
+        {
+            ImGui.TextWrapped("Universalis uses crowdsourced data for the selected world. Listing and sale data can be old; the item price tooltip shows the source data age separately from this plugin's refresh time. NQ and HQ prices are separate.");
+        }
+
+        using (ImRaii.Disabled(!settings.ShowMarketPrices &&
+            !settings.SafetyFilters.FilterMarketPriceAbove && !settings.SafetyFilters.FilterMarketPriceBelow))
         {
             ImGui.SetNextItemWidth(80);
             int cacheMin = settings.PriceCacheDurationMinutes;
@@ -98,7 +114,7 @@ internal class InventorySettingsWindow : Window, IDisposable
             }
 
             var autoRefresh = settings.AutoRefreshPrices;
-            if (ImGui.Checkbox("Auto-refresh visible items", ref autoRefresh))
+            if (ImGui.Checkbox("Auto-refresh inventory prices", ref autoRefresh))
             {
                 settings.AutoRefreshPrices = autoRefresh;
                 changed = true;

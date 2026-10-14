@@ -43,6 +43,8 @@ public sealed class Plugin : IDalamudPlugin
     private InventoryManagementModule InventoryModule { get; init; }
     private readonly AutomationStatusStore _automationStatus;
     private readonly InventoryContextMenu _inventoryContextMenu;
+    private bool _waitingForPrices;
+    private DateTime _priceRefreshDeadlineUtc;
 
     public Plugin()
     {
@@ -125,6 +127,19 @@ public sealed class Plugin : IDalamudPlugin
     private void OnFrameworkUpdate(IFramework framework)
     {
         InventoryModule.Update();
+        if (!_waitingForPrices) return;
+        if (!InventoryModule.HasActivePriceFilters || InventoryModule.ArePriceFiltersReady)
+        {
+            _waitingForPrices = false;
+            SafeStatus(() => _automationStatus.Complete("refresh", "Inventory refreshed; active price filters are ready."));
+            Services.ChatGui.Print("[wahventory] Refresh DONE: inventory refreshed.");
+        }
+        else if (DateTime.UtcNow >= _priceRefreshDeadlineUtc)
+        {
+            _waitingForPrices = false;
+            SafeStatus(() => _automationStatus.Fail("refresh", "Market price refresh timed out."));
+            Services.ChatGui.PrintError("[wahventory] Refresh FAILED: market price refresh timed out.");
+        }
     }
 
     private void OnCommand(string command, string args)
@@ -167,6 +182,13 @@ public sealed class Plugin : IDalamudPlugin
             if (!Services.PlayerState.IsLoaded || InventoryModule.DiscardService.IsDiscarding)
                 throw new InvalidOperationException("Wait until the character is ready and the current discard finishes before refreshing.");
             InventoryModule.RefreshInventory(requireAvailable: true);
+            if (InventoryModule.HasActivePriceFilters && !InventoryModule.ArePriceFiltersReady)
+            {
+                _waitingForPrices = true;
+                _priceRefreshDeadlineUtc = DateTime.UtcNow.AddSeconds(110);
+                Services.ChatGui.Print("[wahventory] Refresh RUNNING: waiting for market prices.");
+                return;
+            }
             _automationStatus.Complete("refresh", "Inventory refreshed.");
             Services.ChatGui.Print("[wahventory] Refresh DONE: inventory refreshed.");
         }

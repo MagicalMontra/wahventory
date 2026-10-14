@@ -33,6 +33,9 @@ public class InventoryItemInfo
     public bool IsSelected { get; set; }
     public long? MarketPrice { get; set; }
     public DateTime? MarketPriceFetchTime { get; set; }
+    public DateTime? MarketDataUpdatedAtUtc { get; set; }
+    public string? MarketPriceWorldName { get; set; }
+    public string? MarketPriceMethodName { get; set; }
     
     public bool IsGear => ItemUICategory >= 35 && ItemUICategory <= 44;
 

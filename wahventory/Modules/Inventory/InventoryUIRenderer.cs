@@ -68,7 +68,7 @@ internal sealed class InventoryUIRenderer
 
         using (ImRaii.Child("Body", new Vector2(0, bodyHeight), false))
         {
-            using (ImRaii.Child("Sidebar", new Vector2(210, 0), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
+            using (ImRaii.Child("Sidebar", new Vector2(230, 0), true))
             {
                 DrawSidebar();
             }
@@ -116,10 +116,10 @@ internal sealed class InventoryUIRenderer
             {
                 if (ImGui.Button($"{FontAwesomeIcon.Sync.ToIconString()}##Refresh", new Vector2(30, 0)))
                 {
-                    _module.RefreshInventory();
+                    _module.RefreshInventory(forcePriceRefresh: true);
                 }
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Refresh inventory");
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Refresh inventory and market prices");
 
             ImGui.SameLine();
             var equipOnly = _module.Settings.EquippablesOnly;
@@ -159,10 +159,7 @@ internal sealed class InventoryUIRenderer
                             bool isSelected = world == _module._selectedWorld;
                             if (ImGui.Selectable(world, isSelected))
                             {
-                                _module._selectedWorld = world;
-                                _priceService.UpdateWorld(_module._selectedWorld);
-                                _priceService.ClearCache();
-                                _module._state.ClearAllPrices();
+                                _module.ChangePriceWorld(world);
                             }
                         }
                     }
@@ -250,6 +247,7 @@ internal sealed class InventoryUIRenderer
         if (ImGui.Checkbox("Show market prices", ref showPrices))
         {
             settings.ShowMarketPrices = showPrices;
+            _module.RefreshPrices();
             changed = true;
         }
 
@@ -258,8 +256,12 @@ internal sealed class InventoryUIRenderer
 
         var counts = _filterService.CountHiddenPerFilter(
             _module._state.SnapshotOriginalItems(),
-            settings.SafetyFilters);
-        _filterPanel.DrawSidebar(settings, counts);
+            settings.SafetyFilters, _module.ArePriceFiltersReady);
+        _filterPanel.DrawSidebar(settings, counts, new FilterPanelOptions
+        {
+            PriceFiltersReady = _module.ArePriceFiltersReady,
+            PriceRefreshStatus = _module.PriceRefreshStatus,
+        });
 
         var bottomY = ImGui.GetWindowHeight() - 32;
         if (ImGui.GetCursorPosY() < bottomY) ImGui.SetCursorPosY(bottomY);
@@ -289,6 +291,11 @@ internal sealed class InventoryUIRenderer
             f.FilterCollectables = true;
             f.FilterUniqueUntradeable = true;
             f.FilterHighLevelGear = true;
+            if (_module.ArePriceFiltersReady)
+            {
+                f.FilterMarketPriceAbove = true;
+                f.FilterMarketPriceBelow = true;
+            }
             changed = true;
             _module.UpdateCategories();
         }
@@ -372,14 +379,18 @@ internal sealed class InventoryUIRenderer
             ImGui.SameLine();
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.541f, 0.227f, 0.227f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.641f, 0.327f, 0.327f, 1f)))
+            using (ImRaii.Disabled(busy || !_module.CanDiscardWithPriceFilters))
             {
                 if (ImGui.Button("Discard", new Vector2(discW, 0)))
                 {
                     var ids = _module._state.SnapshotSelectedIds();
-                    _module.DiscardService.PrepareDiscard(ids, _module._state.SnapshotOriginalItems(), _module.BlacklistedItems);
+                    _module.PrepareSelectedDiscard(ids);
                 }
             }
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Discard the selected items now (with confirmation).");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(_module.CanDiscardWithPriceFilters
+                    ? "Discard the selected visible items now (with confirmation)."
+                    : "Wait for the market price refresh before discarding with price filters.");
         }
     }
 
@@ -527,6 +538,7 @@ internal sealed class InventoryUIRenderer
             ShowLocation = true,
             ShowCategory = showCategory,
             ShowMarketPrices = settings.ShowMarketPrices,
+            PricesRefreshing = _priceService.IsRefreshing,
             ShowTotalValue = settings.ShowMarketPrices && !showCategory,
             Scrollable = scrollable,
             SearchFilter = _module._searchFilter,
@@ -537,14 +549,6 @@ internal sealed class InventoryUIRenderer
                 if (selected) _module._state.Select(item, _module.BlacklistedItems);
                 else _module._state.Deselect(item);
             },
-            IsFetchingPrice = (itemId) => _priceService.IsFetchingPrice(itemId),
-            OnPriceFetchRequested = (item) => _ = _priceService.FetchPrice(item).ContinueWith(task =>
-            {
-                if (task.IsCompletedSuccessfully && task.Result.HasValue)
-                {
-                    _module._state.SetItemPrice(item, task.Result.Value, DateTime.Now);
-                }
-            }),
             OnDrawContextMenu = DrawItemContextMenu,
         };
     }
@@ -604,14 +608,11 @@ internal sealed class InventoryUIRenderer
         ImGui.Separator();
 
         using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorError))
-        using (ImRaii.Disabled(isBlacklisted))
+        using (ImRaii.Disabled(isBlacklisted || _module.DiscardService.IsDiscarding || !_module.CanDiscardWithPriceFilters))
         {
             if (ImGui.MenuItem($"Discard {item.Quantity}×"))
             {
-                _module.DiscardService.PrepareDiscard(
-                    new List<uint> { item.ItemId },
-                    _module._state.SnapshotOriginalItems(),
-                    _module.BlacklistedItems);
+                _module.PrepareSelectedDiscard(new List<uint> { item.ItemId });
             }
         }
     }

@@ -250,6 +250,11 @@ public class ItemTableComponent
         {
             ImGui.Text(item.Name ?? string.Empty);
         }
+        if (item.IsHQ)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(Theme.ColorInfo, "[HQ]");
+        }
         ImGui.EndGroup();
 
         bool nameHovered = config.OnDrawContextMenu != null && ImGui.IsItemHovered();
@@ -302,41 +307,46 @@ public class ItemTableComponent
         {
             ImGui.TextColored(Theme.ColorSubdued, "Untradable");
         }
-        else if (item.MarketPrice.HasValue)
+        else if (item.MarketPrice is > 0)
         {
-            if (item.MarketPrice.Value > 0)
-            {
-                ImGui.TextColored(Theme.ColorPrice, $"{item.MarketPrice.Value:N0}g");
-            }
-            else
-            {
-                ImGui.TextColored(Theme.ColorSubdued, "No data");
-            }
+            ImGui.TextColored(Theme.ColorPrice, $"{item.MarketPrice.Value:N0}g");
+        }
+        else if (item.MarketPriceFetchTime.HasValue)
+        {
+            ImGui.TextColored(Theme.ColorSubdued, "No data");
         }
         else
         {
-            ImGui.TextColored(Theme.ColorSubdued, "Loading...");
-            if (config.OnPriceFetchRequested != null && 
-                (config.IsFetchingPrice == null || !config.IsFetchingPrice(item.ItemId)))
+            ImGui.TextColored(Theme.ColorSubdued, config.PricesRefreshing ? "Loading..." : "Not loaded");
+        }
+
+        if (item.CanBeTraded && ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted($"Universalis · {item.MarketPriceWorldName ?? "selected world"} · {(item.IsHQ ? "HQ" : "NQ")}");
+            if (item.MarketPriceMethodName != null)
+                ImGui.TextUnformatted(item.MarketPriceMethodName);
+            if (item.MarketPriceMethodName == "Average sale price (4 days)")
+                ImGui.TextUnformatted("Average rounded up to whole gil.");
+            if (item.MarketDataUpdatedAtUtc.HasValue)
+                ImGui.TextUnformatted($"Market upload: {item.MarketDataUpdatedAtUtc.Value:yyyy-MM-dd HH:mm} UTC");
+            else
+                ImGui.TextUnformatted("Market upload time unavailable");
+            if (item.MarketPriceFetchTime.HasValue)
             {
-                config.OnPriceFetchRequested(item);
+                ImGui.TextUnformatted($"Fetched: {item.MarketPriceFetchTime.Value.ToUniversalTime():yyyy-MM-dd HH:mm} UTC");
             }
+            ImGui.TextUnformatted("Crowdsourced snapshot; refreshing does not scan the market board.");
+            ImGui.EndTooltip();
         }
     }
     
     private void DrawTotalValue(InventoryItemInfo item)
     {
-        if (item.MarketPrice.HasValue)
+        if (item.MarketPrice is > 0)
         {
-            if (item.MarketPrice.Value == -1)
-            {
-                ImGui.TextColored(Theme.ColorNotTradeable, "N/A");
-            }
-            else
-            {
-                var total = item.MarketPrice.Value * item.Quantity;
-                ImGui.Text($"{total:N0}g");
-            }
+            var total = item.MarketPrice.Value * item.Quantity;
+            ImGui.Text($"{total:N0}g");
         }
         else
         {
@@ -377,14 +387,13 @@ public class ItemTableConfig
     public bool ShowCategory { get; set; } = false;
     public bool ShowMarketPrices { get; set; } = false;
     public bool ShowTotalValue { get; set; } = false;
+    public bool PricesRefreshing { get; set; }
     public bool Scrollable { get; set; } = false;
     public string SearchFilter { get; set; } = string.Empty;
     
     public Func<InventoryItemInfo, bool>? IsItemSelected { get; set; }
     public Func<InventoryItemInfo, bool>? IsItemBlacklisted { get; set; }
     public Action<InventoryItemInfo, bool>? OnItemSelectionChanged { get; set; }
-    public Func<uint, bool>? IsFetchingPrice { get; set; }
-    public Action<InventoryItemInfo>? OnPriceFetchRequested { get; set; }
     public Action<InventoryItemInfo>? OnDrawContextMenu { get; set; }
 }
 

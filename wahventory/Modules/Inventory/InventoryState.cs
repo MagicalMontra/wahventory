@@ -145,12 +145,12 @@ internal sealed class InventoryState
         }
     }
 
-    public void SetItemPrice(InventoryItemInfo item, long price, DateTime fetchTime)
+    public void UpdatePrices(Action<InventoryItemInfo> updatePrice)
     {
         lock (_lock)
         {
-            item.MarketPrice = price;
-            item.MarketPriceFetchTime = fetchTime;
+            foreach (var item in _originalItems.Concat(_allItems).Concat(_categories.SelectMany(c => c.Items)).Distinct())
+                updatePrice(item);
         }
     }
 
@@ -158,10 +158,13 @@ internal sealed class InventoryState
     {
         lock (_lock)
         {
-            foreach (var item in _allItems)
+            foreach (var item in _originalItems.Concat(_allItems).Concat(_categories.SelectMany(c => c.Items)).Distinct())
             {
                 item.MarketPrice = null;
                 item.MarketPriceFetchTime = null;
+                item.MarketDataUpdatedAtUtc = null;
+                item.MarketPriceWorldName = null;
+                item.MarketPriceMethodName = null;
             }
         }
     }

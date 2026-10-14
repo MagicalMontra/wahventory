@@ -210,7 +210,139 @@ internal static class Program
                 "Candidate filtering also protects unnormalized overlaps");
         });
 
+        Run("price updates reach hidden originals and every quality-specific display copy", () =>
+        {
+            var f = new PricingFixture();
+            var fetched = new DateTime(2026, 10, 14, 12, 0, 0);
+            var updatedUtc = new DateTime(2026, 10, 14, 4, 0, 0, DateTimeKind.Utc);
+            f.State.UpdatePrices(item =>
+            {
+                item.MarketPrice = item.ItemId == 303 ? 333 : item.IsHQ ? 900 : 100;
+                item.MarketPriceFetchTime = fetched;
+                item.MarketDataUpdatedAtUtc = updatedUtc.AddHours(item.IsHQ ? -24 : 0);
+                item.MarketPriceWorldName = "Current World";
+                item.MarketPriceMethodName = "Average sale price (4 days)";
+            });
+            foreach (var item in f.AllCopies)
+            {
+                Check(item.MarketPrice == (item.ItemId == 303 ? 333 : item.IsHQ ? 900 : 100),
+                    "The current quote follows each physical/display row's NQ/HQ quality");
+                Check(item.MarketPriceFetchTime == fetched, "Local fetch time reaches each copy");
+                Check(item.MarketDataUpdatedAtUtc == updatedUtc.AddHours(item.IsHQ ? -24 : 0),
+                    "Independent source-data age follows the quality-specific quote");
+                Check(item.MarketPriceWorldName == "Current World", "World provenance reaches each copy");
+                Check(item.MarketPriceMethodName == "Average sale price (4 days)", "Method provenance reaches each copy");
+            }
+            Check(f.Original.Single(i => i.ItemId == 303).MarketPrice == 333,
+                "An original hidden by the current filter is refreshed too");
+            Check(f.CategoryCopies.Single(i => !i.IsHQ).Quantity == 5,
+                "Updating prices preserves the combined NQ quantity");
+            Check(f.CategoryCopies.Single(i => i.IsHQ).Quantity == 7,
+                "Updating prices preserves the distinct HQ quantity");
+            Check(f.State.SnapshotCategories().Single().TotalValue == 6800,
+                "Displayed category value immediately uses separate updated NQ/HQ quotes");
+            Selected(f.State, 101);
+            Check(f.AllCopies.Where(i => i.ItemId == 101).All(i => i.IsSelected),
+                "Price updates preserve unrelated selection state and visuals");
+        });
+
+        Run("clearing world prices removes all price provenance including hidden originals", () =>
+        {
+            var f = new PricingFixture();
+            f.State.UpdatePrices(item =>
+            {
+                item.MarketPrice = item.IsHQ ? 900 : 100;
+                item.MarketPriceFetchTime = DateTime.Now;
+                item.MarketDataUpdatedAtUtc = DateTime.UtcNow.AddDays(-1);
+                item.MarketPriceWorldName = "Previous World";
+                item.MarketPriceMethodName = "Lowest current listing";
+            });
+            f.State.ClearAllPrices();
+            foreach (var item in f.AllCopies)
+            {
+                Check(item.MarketPrice == null, "Old unit prices cannot survive world invalidation");
+                Check(item.MarketPriceFetchTime == null, "Old local fetch times cannot suggest readiness");
+                Check(item.MarketDataUpdatedAtUtc == null, "Old source-data age is cleared");
+                Check(item.MarketPriceWorldName == null, "Old world provenance is cleared");
+                Check(item.MarketPriceMethodName == null, "Old method provenance is cleared");
+            }
+            Check(f.Original.Single(i => i.ItemId == 303).MarketPrice == null,
+                "Hidden original cannot retain a quote from the previous world");
+            Check(f.State.SnapshotCategories().Single().TotalValue == null,
+                "Cleared grouped rows no longer display an old market total");
+            Check(f.CategoryCopies.Single(i => !i.IsHQ).Quantity == 5 && f.CategoryCopies.Single(i => i.IsHQ).Quantity == 7,
+                "Invalidating prices preserves physical quality and quantities");
+            Selected(f.State, 101);
+            Check(f.AllCopies.Where(i => i.ItemId == 101).All(i => i.IsSelected),
+                "Price invalidation does not alter the base-ID selection contract");
+        });
+
+        Run("a completed replacement quote does not restore the other quality's old price", () =>
+        {
+            var f = new PricingFixture();
+            f.State.UpdatePrices(item => item.MarketPrice = item.IsHQ ? 900 : 100);
+            f.State.ClearAllPrices();
+            f.State.UpdatePrices(item =>
+            {
+                if (item.IsHQ) return; // No quote for HQ in the replacement result.
+                item.MarketPrice = 50;
+                item.MarketPriceWorldName = "Replacement World";
+                item.MarketPriceMethodName = "Lowest current listing";
+            });
+            Check(f.AllCopies.Where(i => i.IsHQ).All(i => itemQuoteMissing(i)),
+                "Missing HQ quote remains unknown across originals and display copies");
+            Check(f.AllCopies.Where(i => !i.IsHQ).All(i => i.MarketPrice == 50 && i.MarketPriceWorldName == "Replacement World"),
+                "New NQ quote replaces only the appropriate quality");
+            Check(f.State.SnapshotCategories().Single().TotalValue == 250,
+                "Current NQ total cannot include the prior world's HQ value");
+        });
+
         Console.WriteLine($"Inventory list regression passed: {_checks} assertions in {_scenarios} scenarios.");
+    }
+
+    private static bool itemQuoteMissing(InventoryItemInfo item) => item.MarketPrice == null &&
+        item.MarketPriceFetchTime == null && item.MarketDataUpdatedAtUtc == null &&
+        item.MarketPriceWorldName == null && item.MarketPriceMethodName == null;
+
+    private sealed class PricingFixture
+    {
+        public readonly InventoryState State = new();
+        public readonly List<InventoryItemInfo> Original = new()
+        {
+            new() { ItemId = 101, Name = "NQ first stack", Slot = 1, Quantity = 2 },
+            new() { ItemId = 101, Name = "NQ second stack", Slot = 2, Quantity = 3 },
+            new() { ItemId = 101, Name = "HQ stack", Slot = 3, Quantity = 7, IsHQ = true },
+            new() { ItemId = 303, Name = "Hidden original", Slot = 4, Quantity = 9 },
+        };
+        public List<InventoryItemInfo> FilteredCopies = new();
+        public List<InventoryItemInfo> CategoryCopies = new();
+        public IEnumerable<InventoryItemInfo> AllCopies => Original.Concat(FilteredCopies).Concat(CategoryCopies);
+
+        public PricingFixture()
+        {
+            State.ApplyRefreshAndRecategorize(Original, _ => { }, items =>
+            {
+                FilteredCopies = items.Where(i => i.ItemId != 303).Select(Copy).ToList();
+                return FilteredCopies;
+            }, items =>
+            {
+                CategoryCopies = items.GroupBy(i => new { i.ItemId, i.IsHQ }).Select(group =>
+                {
+                    var copy = Copy(group.First());
+                    copy.Quantity = group.Sum(i => i.Quantity);
+                    return copy;
+                }).ToList();
+                return new() { new() { Name = "Visible", Items = CategoryCopies } };
+            });
+            State.Select(Original[0], new());
+            foreach (var item in AllCopies) item.IsSelected = item.ItemId == 101;
+        }
+
+        private static InventoryItemInfo Copy(InventoryItemInfo item) => new()
+        {
+            ItemId = item.ItemId, Name = item.Name, Slot = item.Slot,
+            IsHQ = item.IsHQ, Quantity = item.Quantity,
+        };
     }
 
     private sealed class Fixture

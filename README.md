@@ -43,11 +43,34 @@ List rules apply to the item type, including both normal and HQ copies. Existing
 safety filters continue to apply. List edits are unavailable while a discard is
 active or list sync is enabled. Manage existing entries in **Lists**.
 
-## Completion reporting (20.0.0.6)
+## Market prices and filters (20.0.0.8)
+
+The sidebar has **Market price >** and **Market price <** controls. Each hides
+matching items using **gil per item**, with strict comparisons; equal prices
+remain visible. Both controls and their thresholds are disabled until all price
+requests for the current inventory, world and price method finish.
+
+Unknown prices remain visible as **No data**. With either price filter enabled,
+discard operations wait for pricing, and unknown prices are excluded from the
+discard queue. Hidden HQ stacks cannot be discarded through a selected normal
+stack of the same item.
+
+**Settings > Market Prices > Price method** offers **Lowest current listing**
+and **Average sale price (4 days)**. Both use Universalis for the selected world
+and exact normal/HQ quality. The average covers the current UTC date plus the
+previous three dates, is weighted by quantity sold, and rounds up to whole gil.
+Hover over a price to see its world, quality, method, market upload time and fetch
+time. Universalis is crowdsourced; refreshing downloads its latest snapshot and
+does not perform a live market-board scan.
+
+See the [market price guide](https://github.com/MagicalMontra/wahventory/wiki/Market-prices).
+
+## Completion reporting (20.0.0.6 and later)
 
 Refresh reports `RUNNING`, then `DONE` after inventory enumeration, safety
-assessment and categorization return. Market-price requests can continue
-asynchronously; their results are not required for configured auto-discard IDs.
+assessment and categorization return. With a price filter enabled, `DONE` also
+waits for the current price refresh to settle. Otherwise market-price requests
+can continue asynchronously. Failed or missing quotes remain unknown.
 
 Discard reports `RUNNING`, confirmed progress, and exactly one terminal result:
 `DONE`, `FAILED`, or `CANCELLED`. `DONE` requires the final queued item's
@@ -72,5 +95,10 @@ does not discard real items. Status-store regression checks are under
 The list-policy and selection checks are in `tests/InventoryListRegression`.
 `tests/InventoryContextMenuRegression` checks the submenu against fake menu,
 inventory and persistence services; it does not manipulate the game inventory.
+
+Price filtering, sidebar readiness, and the pricing cache/provider are covered by
+`tests/PriceFilterRegression`, `tests/PriceFilterUiRegression`, and
+`tests/PricingRegression`. These tests use synthetic responses and do not make
+network requests or discard game items.
 
 Upstream: [wah/wahventory](https://git.wahapp.com/wah/wahventory). The project declares AGPL-3.0-or-later in its package metadata.

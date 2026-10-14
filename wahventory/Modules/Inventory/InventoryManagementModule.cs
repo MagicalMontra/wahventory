@@ -51,9 +51,19 @@ public class InventoryManagementModule : IDisposable
     private DateTime _lastConfigSave = DateTime.MinValue;
     private readonly TimeSpan _configSaveInterval = TimeSpan.FromSeconds(2);
     private bool _windowIsOpen = false;
+    private long _appliedPriceVersion = -1;
+    private string? _lastPlayerWorld;
 
     internal InventorySettings Settings => _plugin.Configuration.InventorySettings;
     internal Dictionary<uint, bool> ExpandedCategories => Settings.ExpandedCategories;
+    internal bool HasActivePriceFilters => Settings.SafetyFilters.FilterMarketPriceAbove || Settings.SafetyFilters.FilterMarketPriceBelow;
+    private bool NeedsMarketPrices => Settings.ShowMarketPrices || HasActivePriceFilters;
+    internal bool ArePriceFiltersReady => NeedsMarketPrices && _priceService.IsRefreshComplete;
+    internal bool CanDiscardWithPriceFilters => !HasActivePriceFilters || ArePriceFiltersReady;
+    internal string PriceRefreshStatus => _priceService.IsRefreshing
+        ? $"Refreshing prices {_priceService.CompletedCount}/{_priceService.TotalCount}"
+        : ArePriceFiltersReady ? "Price refresh complete"
+        : "Enable market prices to refresh";
 
     public InventoryManagementModule(Plugin plugin, IGameServices services)
     {
@@ -113,7 +123,8 @@ public class InventoryManagementModule : IDisposable
             if (!string.IsNullOrEmpty(currentWorld))
             {
                 _selectedWorld = currentWorld;
-                _priceService.UpdateWorld(_selectedWorld);
+                _lastPlayerWorld = currentWorld;
+                _priceService.UpdateWorld(_selectedWorld, FindWorldId(_selectedWorld));
             }
         }
         catch
@@ -200,16 +211,14 @@ public class InventoryManagementModule : IDisposable
             Initialize();
         }
         
-        _priceService.CleanupStuckFetches();
-        
         // Update price service world if changed
         try
         {
             var currentWorld = _services.PlayerState.IsLoaded ? _services.PlayerState.CurrentWorld.Value.Name.ToString() : null;
-            if (!string.IsNullOrEmpty(currentWorld) && currentWorld != _selectedWorld)
+            if (!string.IsNullOrEmpty(currentWorld) && currentWorld != _lastPlayerWorld)
             {
-                _selectedWorld = currentWorld;
-                _priceService.UpdateWorld(_selectedWorld);
+                _lastPlayerWorld = currentWorld;
+                ChangePriceWorld(currentWorld);
             }
         }
         catch
@@ -218,24 +227,17 @@ public class InventoryManagementModule : IDisposable
         }
         
         // Auto-refresh prices
-        if (_windowIsOpen && Settings.AutoRefreshPrices && !DiscardService.IsDiscarding &&
+        if (_windowIsOpen && NeedsMarketPrices && Settings.AutoRefreshPrices && !DiscardService.IsDiscarding && !_priceService.IsRefreshing &&
             DateTime.Now - _lastRefresh > _refreshInterval)
         {
             _lastRefresh = DateTime.Now;
 
-            var visibleItems = GetVisibleItems();
-            var itemsNeedingPrice = _priceService.GetItemsNeedingPriceFetch(visibleItems, 2);
-            foreach (var item in itemsNeedingPrice)
-            {
-                _ = _priceService.FetchPrice(item).ContinueWith(task =>
-                {
-                    if (task.IsCompletedSuccessfully && task.Result.HasValue)
-                    {
-                        _state.SetItemPrice(item, task.Result.Value, DateTime.Now);
-                    }
-                });
-            }
+            // Fetch from the inventory snapshot, including rows hidden by a price filter.
+            if (_priceService.GetItemsNeedingPriceFetch(_state.SnapshotOriginalItems(), 1).Count > 0)
+                RefreshPrices();
         }
+
+        ApplyLatestPrices();
 
         _windowIsOpen = false;
 
@@ -250,11 +252,12 @@ public class InventoryManagementModule : IDisposable
         ListSync.Update();
 
         // Update passive discard
-        _passiveDiscardService.Update(
-            AutoDiscardItems,
-            _state.SnapshotOriginalItems(),
-            BlacklistedItems,
-            ExecuteAutoDiscard);
+        if (Settings.PassiveDiscard.Enabled && CanDiscardWithPriceFilters)
+            _passiveDiscardService.Update(
+                AutoDiscardItems,
+                GetDiscardEligibleItems(synchronizePrices: false),
+                BlacklistedItems,
+                ExecuteAutoDiscard);
     }
     
     public void Draw()
@@ -273,10 +276,12 @@ public class InventoryManagementModule : IDisposable
         RefreshInventory();
     }
 
-    internal void RefreshInventory(bool requireAvailable = false)
+    internal void RefreshInventory(bool requireAvailable = false, bool forcePriceRefresh = false)
     {
         _state.DeselectItems(BlacklistedItems);
         var newItems = _inventoryHelpers.GetAllItems(_showArmory, false, requireAvailable);
+        if (NeedsMarketPrices)
+            _priceService.BeginRefresh(newItems, forcePriceRefresh);
 
         _state.ApplyRefreshAndRecategorize(
             newItems,
@@ -285,27 +290,74 @@ public class InventoryManagementModule : IDisposable
                 item.SafetyAssessment = InventoryHelpers.AssessItemSafety(item, Settings, BlacklistedItems);
                 _priceService.UpdateItemPrice(item);
             },
-            applyFilters: items => _filterService.ApplyFilters(items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly),
+            applyFilters: items => _filterService.ApplyFilters(items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly, ArePriceFiltersReady),
             categorize: items => _filterService.GroupIntoCategories(items));
     }
 
     internal void UpdateCategories()
     {
         _state.Recategorize(
-            applyFilters: items => _filterService.ApplyFilters(items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly),
+            applyFilters: items => _filterService.ApplyFilters(items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly, ArePriceFiltersReady),
             categorize: items => _filterService.GroupIntoCategories(items));
     }
 
-    private List<InventoryItemInfo> GetVisibleItems()
+    internal void RefreshPrices(bool force = false)
     {
-        return _state.ApplyFiltersToOriginal(
-            items => _filterService.ApplyFilters(items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly));
+        if (NeedsMarketPrices)
+            _priceService.BeginRefresh(_state.SnapshotOriginalItems(), force);
+        ApplyLatestPrices();
+        UpdateCategories();
+    }
+
+    internal void ChangePriceWorld(string worldName)
+    {
+        _selectedWorld = worldName;
+        _priceService.UpdateWorld(worldName, FindWorldId(worldName));
+        _state.ClearAllPrices();
+        RefreshPrices();
+    }
+
+    private uint? FindWorldId(string worldName)
+    {
+        var world = _services.DataManager.GetExcelSheet<Lumina.Excel.Sheets.World>()?
+            .FirstOrDefault(row => row.Name.ExtractText() == worldName);
+        return world is { RowId: > 0 } ? world.Value.RowId : null;
+    }
+
+    private void ApplyLatestPrices(bool force = false)
+    {
+        var version = _priceService.ResultsVersion;
+        if (!force && version == _appliedPriceVersion) return;
+        _state.UpdatePrices(_priceService.UpdateItemPrice);
+        _appliedPriceVersion = version;
+        UpdateCategories();
+    }
+
+    internal List<InventoryItemInfo> GetDiscardEligibleItems(bool synchronizePrices = true)
+    {
+        if (!CanDiscardWithPriceFilters) return new();
+        // A batch can finish between the framework update and a menu click.
+        // Re-read committed quotes (including expired/unknown ones) before queueing.
+        if (synchronizePrices) ApplyLatestPrices(force: HasActivePriceFilters);
+        return _state.ApplyFiltersToOriginal(items => _filterService.ApplyFilters(
+                items, Settings.SafetyFilters, BlacklistedItems, _searchFilter, Settings.EquippablesOnly, ArePriceFiltersReady)
+            .Where(item => !HasActivePriceFilters || item.MarketPrice is > 0));
+    }
+
+    internal void PrepareSelectedDiscard(IEnumerable<uint> itemIds)
+    {
+        if (!CanDiscardWithPriceFilters)
+        {
+            _services.ChatGui.PrintError("[wahventory] Wait for the market price refresh before discarding with price filters.");
+            return;
+        }
+        DiscardService.PrepareDiscard(itemIds, GetDiscardEligibleItems(), BlacklistedItems);
     }
 
     internal List<InventoryItemInfo> GetProtectedItems()
     {
         return _state.GetProtectedItems(
-            items => _filterService.GetProtectedItems(items, Settings.SafetyFilters, BlacklistedItems));
+            items => _filterService.GetProtectedItems(items, Settings.SafetyFilters, BlacklistedItems, ArePriceFiltersReady));
     }
     
     public void SaveBlacklist()
@@ -393,7 +445,11 @@ public class InventoryManagementModule : IDisposable
 
         // Do not report an empty successful queue from stale/unloaded inventory.
         RefreshInventory(requireAvailable: true);
-        var itemsToDiscard = _state.SnapshotAutoDiscardCandidates(AutoDiscardItems, BlacklistedItems);
+        if (!CanDiscardWithPriceFilters)
+            throw new InvalidOperationException("Wait for the market price refresh before discarding with price filters.");
+        var eligibleItems = GetDiscardEligibleItems();
+        var itemsToDiscard = eligibleItems.Where(item => AutoDiscardItems.Contains(item.ItemId)
+            && item.CanBeDiscarded && !BlacklistedItems.Contains(item.ItemId)).ToList();
 
         if (!itemsToDiscard.Any())
         {
@@ -402,7 +458,7 @@ public class InventoryManagementModule : IDisposable
 
         var selectedItemIds = itemsToDiscard.Select(i => i.ItemId).Distinct().ToList();
         // Auto-discard list items are pre-approved by being on the list — skip the confirmation step.
-        return DiscardService.PrepareDiscard(selectedItemIds, _state.SnapshotOriginalItems(), BlacklistedItems, autoStart: true);
+        return DiscardService.PrepareDiscard(selectedItemIds, eligibleItems, BlacklistedItems, autoStart: true);
     }
 
     internal void AddSelectedToBlacklist()

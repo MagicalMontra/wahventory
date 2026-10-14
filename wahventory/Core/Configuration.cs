@@ -24,12 +24,19 @@ public class InventorySettings
     public bool EquippablesOnly { get; set; } = false;
     public int PriceCacheDurationMinutes { get; set; } = 30;
     public bool AutoRefreshPrices { get; set; } = true;
+    public MarketPriceMethod PriceMethod { get; set; } = MarketPriceMethod.LowestListing;
 
     public Dictionary<uint, bool> ExpandedCategories { get; set; } = new();
 
     public PassiveDiscardSettings PassiveDiscard { get; set; } = new();
 
     public ListSyncSettings ListSync { get; set; } = new();
+}
+
+public enum MarketPriceMethod
+{
+    LowestListing,
+    AverageSalePrice,
 }
 
 [Serializable]
@@ -60,6 +67,10 @@ public class SafetyFilters
     public bool FilterUniqueUntradeable { get; set; } = true;
     public bool FilterHQItems { get; set; } = false;
     public bool FilterCollectables { get; set; } = false;
+    public bool FilterMarketPriceAbove { get; set; } = false;
+    public long MarketPriceAboveThreshold { get; set; } = 1000;
+    public bool FilterMarketPriceBelow { get; set; } = false;
+    public long MarketPriceBelowThreshold { get; set; } = 100;
 
     public uint MaxGearItemLevel { get; set; } = 600;
 }

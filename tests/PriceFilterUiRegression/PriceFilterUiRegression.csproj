@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../wahventory/UI/Components/FilterPanelComponent.cs" Link="Production/FilterPanelComponent.cs" />
+    <Compile Include="../../wahventory/Core/Configuration.cs" Link="Production/Configuration.cs" />
+  </ItemGroup>
+</Project>

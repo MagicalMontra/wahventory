@@ -15,6 +15,8 @@ public class FilterHiddenCounts
     public int Collectables;
     public int UniqueUntradeable;
     public int HighLevelGear;
+    public int MarketPriceAbove;
+    public int MarketPriceBelow;
 }
 
 public class ItemFilterService
@@ -24,7 +26,8 @@ public class ItemFilterService
         SafetyFilters filters,
         HashSet<uint> blacklistedItems,
         string? searchFilter = null,
-        bool equippablesOnly = false)
+        bool equippablesOnly = false,
+        bool priceFiltersReady = false)
     {
         var filtered = items.AsEnumerable();
 
@@ -62,13 +65,17 @@ public class ItemFilterService
         if (filters.FilterCollectables)
             filtered = filtered.Where(i => !i.IsCollectable);
 
+        if (priceFiltersReady)
+            filtered = filtered.Where(i => !MatchesPriceFilter(i, filters));
+
         return filtered;
     }
 
     public bool IsItemFiltered(
         InventoryItemInfo item,
         SafetyFilters filters,
-        HashSet<uint> blacklistedItems)
+        HashSet<uint> blacklistedItems,
+        bool priceFiltersReady = false)
     {
         if (ItemSafetyData.CurrencyRange.Contains(item.ItemId))
             return true;
@@ -97,19 +104,23 @@ public class ItemFilterService
         if (filters.FilterCollectables && item.IsCollectable)
             return true;
 
+        if (priceFiltersReady && MatchesPriceFilter(item, filters))
+            return true;
+
         return false;
     }
 
     public List<InventoryItemInfo> GetProtectedItems(
         IEnumerable<InventoryItemInfo> allItems,
         SafetyFilters filters,
-        HashSet<uint> blacklistedItems)
+        HashSet<uint> blacklistedItems,
+        bool priceFiltersReady = false)
     {
         var protectedItems = new List<InventoryItemInfo>();
         
         foreach (var item in allItems)
         {
-            if (IsItemFiltered(item, filters, blacklistedItems))
+            if (IsItemFiltered(item, filters, blacklistedItems, priceFiltersReady))
             {
                 protectedItems.Add(item);
             }
@@ -124,7 +135,8 @@ public class ItemFilterService
     /// </summary>
     public FilterHiddenCounts CountHiddenPerFilter(
         IEnumerable<InventoryItemInfo> items,
-        SafetyFilters filters)
+        SafetyFilters filters,
+        bool priceFiltersReady = false)
     {
         var counts = new FilterHiddenCounts();
         foreach (var item in items)
@@ -135,8 +147,25 @@ public class ItemFilterService
             if (item.IsCollectable) counts.Collectables++;
             if (item.IsUnique && item.IsUntradable) counts.UniqueUntradeable++;
             if (item.EquipSlotCategory > 0 && item.ItemLevel >= filters.MaxGearItemLevel) counts.HighLevelGear++;
+            if (priceFiltersReady && HasKnownMarketPrice(item))
+            {
+                if (item.MarketPrice!.Value > Math.Max(0, filters.MarketPriceAboveThreshold)) counts.MarketPriceAbove++;
+                if (item.MarketPrice!.Value < Math.Max(0, filters.MarketPriceBelowThreshold)) counts.MarketPriceBelow++;
+            }
         }
         return counts;
+    }
+
+    private static bool HasKnownMarketPrice(InventoryItemInfo item) => item.MarketPrice is > 0;
+
+    private static bool MatchesPriceFilter(InventoryItemInfo item, SafetyFilters filters)
+    {
+        // Null, zero, and the existing -1 unavailable sentinel never become a
+        // fictitious zero-gil price. This is a display filter, not a safety rule.
+        if (!HasKnownMarketPrice(item)) return false;
+        var price = item.MarketPrice!.Value;
+        return (filters.FilterMarketPriceAbove && price > Math.Max(0, filters.MarketPriceAboveThreshold)) ||
+               (filters.FilterMarketPriceBelow && price < Math.Max(0, filters.MarketPriceBelowThreshold));
     }
 
     public List<CategoryGroup> GroupIntoCategories(
@@ -147,7 +176,7 @@ public class ItemFilterService
             .Select(categoryGroup => 
             {
                 var groupedItems = categoryGroup
-                    .GroupBy(i => i.ItemId)
+                    .GroupBy(i => new { i.ItemId, i.IsHQ })
                     .Select(itemGroup => 
                     {
                         var first = itemGroup.First();
@@ -170,6 +199,9 @@ public class ItemFilterService
                             ItemUICategory = first.ItemUICategory,
                             MarketPrice = first.MarketPrice,
                             MarketPriceFetchTime = first.MarketPriceFetchTime,
+                            MarketDataUpdatedAtUtc = first.MarketDataUpdatedAtUtc,
+                            MarketPriceWorldName = first.MarketPriceWorldName,
+                            MarketPriceMethodName = first.MarketPriceMethodName,
                             IsSelected = first.IsSelected,
                             ItemLevel = first.ItemLevel,
                             EquipLevel = first.EquipLevel,
