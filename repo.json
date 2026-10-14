@@ -3,7 +3,7 @@
     "Author": "wah",
     "Name": "wahventory (Refresh Fork)",
     "InternalName": "wahventory",
-    "AssemblyVersion": "20.0.0.8",
+    "AssemblyVersion": "20.0.0.9",
     "Description": "An inventory management plugin\r\n• Smart safety filters\r\n• Market price integration via Universalis\r\n• Bulk discard functionality\r\n• Category grouping and search\r\n• Gearset protection\r\n• /wahventory refresh command (MagicalMontra fork)\r\n• Refresh/discard completion reporting\r\n• Inventory right-click discard and blacklist submenu\r\n• Market price filters and quality-specific pricing methods",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/MagicalMontra/wahventory",
@@ -21,12 +21,12 @@
     "LoadPriority": 0,
     "Punchline": "Advanced inventory management with safety filters and auto-discard",
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.8/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.8/latest.zip",
-    "DownloadLinkTesting": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.8/latest.zip",
+    "DownloadLinkInstall": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.9/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.9/latest.zip",
+    "DownloadLinkTesting": "https://github.com/MagicalMontra/wahventory/releases/download/v20.0.0.9/latest.zip",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "LastUpdate": 1791983132,
-    "Changelog": "Adds market price above/below filters that wait for refresh completion, selectable Universalis listing/sale-average methods, HQ/NQ and world isolation, and market upload timestamps. Unknown prices stay visible and are excluded from priced discard queues."
+    "LastUpdate": 1791987867,
+    "Changelog": "Price filters now show matching per-item prices: < 500 shows prices below 500 gil; > 1000 shows prices above 1,000 gil. Both enabled use either match. Unknown prices do not match; controls still wait for refresh completion."
   }
 ]
