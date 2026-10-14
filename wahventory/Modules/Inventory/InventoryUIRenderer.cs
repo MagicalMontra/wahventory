@@ -348,24 +348,25 @@ internal sealed class InventoryUIRenderer
             }
             ImGui.SameLine();
             var locked = _module.ListsLocked;
+            var busy = _module.DiscardService.IsDiscarding;
             const string lockedTip = "Lists are synced from a URL. Edit the source file instead.";
-            using (ImRaii.Disabled(locked))
+            using (ImRaii.Disabled(locked || busy))
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.227f, 0.227f, 0.541f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.327f, 0.327f, 0.641f, 1f)))
             {
                 if (ImGui.Button("Add to blacklist", new Vector2(blW, 0))) _module.AddSelectedToBlacklist();
             }
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip(locked ? lockedTip : "Add selected items to the blacklist (they'll never be discarded).");
+                ImGui.SetTooltip(busy ? "Wait for the current discard operation to finish." : locked ? lockedTip : "Add selected items to the blacklist (they'll never be discarded).");
             ImGui.SameLine();
-            using (ImRaii.Disabled(locked))
+            using (ImRaii.Disabled(locked || busy))
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.541f, 0.341f, 0.127f, 1f))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.641f, 0.441f, 0.227f, 1f)))
             {
                 if (ImGui.Button("Add to auto-discard", new Vector2(adW, 0))) _module.AddSelectedToAutoDiscard();
             }
             if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip(locked ? lockedTip : "Add selected items to the auto-discard list (discarded by /wahventory auto and passive discard).");
+                ImGui.SetTooltip(busy ? "Wait for the current discard operation to finish." : locked ? lockedTip : "Add selected items to the auto-discard list (discarded by /wahventory auto and passive discard).");
             ImGui.SameLine();
             DrawMoveButton(canMove, moveOverflow, armorySelected, freeSlots, moveW);
             ImGui.SameLine();
@@ -533,7 +534,7 @@ internal sealed class InventoryUIRenderer
             IsItemBlacklisted = (item) => _module.BlacklistedItems.Contains(item.ItemId),
             OnItemSelectionChanged = (item, selected) =>
             {
-                if (selected) _module._state.Select(item);
+                if (selected) _module._state.Select(item, _module.BlacklistedItems);
                 else _module._state.Deselect(item);
             },
             IsFetchingPrice = (itemId) => _priceService.IsFetchingPrice(itemId),
@@ -554,49 +555,56 @@ internal sealed class InventoryUIRenderer
         ImGui.Separator();
 
         var isSelected = _module._state.IsSelected(item.ItemId);
-        if (ImGui.MenuItem(isSelected ? "Deselect" : "Select"))
+        var isBlacklisted = _module.BlacklistedItems.Contains(item.ItemId);
+        using (ImRaii.Disabled(isBlacklisted && !isSelected))
         {
-            if (isSelected) _module._state.Deselect(item);
-            else _module._state.Select(item);
+            if (ImGui.MenuItem(isSelected ? "Deselect" : "Select"))
+            {
+                if (isSelected) _module._state.Deselect(item);
+                else _module._state.Select(item, _module.BlacklistedItems);
+            }
         }
 
         ImGui.Separator();
 
-        var listsLocked = ImRaii.Disabled(_module.ListsLocked);
-        var isBlacklisted = _module.BlacklistedItems.Contains(item.ItemId);
+        var listsLocked = ImRaii.Disabled(_module.ListsLocked || _module.DiscardService.IsDiscarding);
         if (ImGui.MenuItem(isBlacklisted ? "Remove from blacklist" : "Add to blacklist"))
         {
             if (isBlacklisted)
             {
                 _module.BlacklistedItems.Remove(item.ItemId);
+                _module.SaveBlacklist();
+                _module.RefreshInventory();
             }
             else
             {
-                _module.BlacklistedItems.Add(item.ItemId);
+                _module.AddItemToBlacklist(item.ItemId);
             }
-            _module.SaveBlacklist();
-            _module.RefreshInventory();
         }
 
         var isAutoDiscard = _module.AutoDiscardItems.Contains(item.ItemId);
-        if (ImGui.MenuItem(isAutoDiscard ? "Remove from auto-discard" : "Add to auto-discard"))
+        using (ImRaii.Disabled(isBlacklisted && !isAutoDiscard))
         {
-            if (isAutoDiscard)
+            if (ImGui.MenuItem(isAutoDiscard ? "Remove from auto-discard" : "Add to auto-discard"))
             {
-                _module.AutoDiscardItems.Remove(item.ItemId);
+                if (isAutoDiscard)
+                {
+                    _module.AutoDiscardItems.Remove(item.ItemId);
+                    _module.SaveAutoDiscard();
+                    _module.RefreshInventory();
+                }
+                else
+                {
+                    _module.AddItemToAutoDiscard(item.ItemId);
+                }
             }
-            else
-            {
-                _module.AutoDiscardItems.Add(item.ItemId);
-            }
-            _module.SaveAutoDiscard();
-            _module.RefreshInventory();
         }
         listsLocked.Dispose();
 
         ImGui.Separator();
 
         using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorError))
+        using (ImRaii.Disabled(isBlacklisted))
         {
             if (ImGui.MenuItem($"Discard {item.Quantity}×"))
             {

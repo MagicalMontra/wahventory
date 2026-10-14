@@ -110,6 +110,11 @@ internal sealed class ListSyncController : IDisposable
 
     public void Disable(bool restorePreSyncBackup)
     {
+        if (restorePreSyncBackup && _module.DiscardService.IsDiscarding)
+        {
+            _chat.PrintError("[wahventory] Wait for the current discard operation before restoring lists.");
+            return;
+        }
         Settings.Enabled = false;
         Pending = null;
         LastError = null;
@@ -146,6 +151,11 @@ internal sealed class ListSyncController : IDisposable
 
     public bool RestoreBackup(string fileName)
     {
+        if (_module.DiscardService.IsDiscarding)
+        {
+            _chat.PrintError("[wahventory] Wait for the current discard operation before restoring lists.");
+            return false;
+        }
         var backup = _configManager.LoadListBackup(fileName);
         if (backup == null)
         {
@@ -156,12 +166,15 @@ internal sealed class ListSyncController : IDisposable
         _configManager.BackupLists(_module.BlacklistedItems, _module.AutoDiscardItems, $"Before restoring {fileName}", Settings.PreSyncBackup);
         _module.ReplaceLists(backup.Blacklist, backup.AutoDiscard);
         _chat.Print($"[wahventory] Restored lists from {backup.CreatedAt:yyyy-MM-dd HH:mm} " +
-                    $"({backup.Blacklist.Count} blacklist, {backup.AutoDiscard.Count} auto-discard).");
+                    $"({_module.BlacklistedItems.Count} blacklist, {_module.AutoDiscardItems.Count} auto-discard).");
         return true;
     }
 
-    public string ExportCurrentLists() =>
-        ListSyncService.Export(_module.BlacklistedItems, _module.AutoDiscardItems, Settings.RemoteName, Settings.RemoteRevision);
+    public string ExportCurrentLists()
+    {
+        if (_module.EnforceListInvariants() > 0) _module.SaveAutoDiscard();
+        return ListSyncService.Export(_module.BlacklistedItems, _module.AutoDiscardItems, Settings.RemoteName, Settings.RemoteRevision);
+    }
 
     private void HandleResult(ListSyncFetchResult result)
     {
@@ -200,10 +213,14 @@ internal sealed class ListSyncController : IDisposable
         if (Pending?.Hash == hash)
             return;
 
-        var diff = ListSyncDiff.Compute(
-            _module.BlacklistedItems, _module.AutoDiscardItems,
-            (file.Blacklist ?? new List<uint>()).ToHashSet(),
-            (file.AutoDiscard ?? new List<uint>()).ToHashSet());
+        // Review the effective lists that will actually be persisted: blacklist
+        // entries always take precedence over conflicting discard entries.
+        var blacklist = (file.Blacklist ?? new List<uint>()).ToHashSet();
+        var autoDiscard = (file.AutoDiscard ?? new List<uint>()).ToHashSet();
+        InventoryListPolicy.Normalize(blacklist, autoDiscard);
+        file.Blacklist = blacklist.OrderBy(id => id).ToList();
+        file.AutoDiscard = autoDiscard.OrderBy(id => id).ToList();
+        var diff = ListSyncDiff.Compute(_module.BlacklistedItems, _module.AutoDiscardItems, blacklist, autoDiscard);
 
         if (diff.IsRisky)
         {

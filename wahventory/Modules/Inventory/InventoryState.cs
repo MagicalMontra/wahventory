@@ -58,12 +58,34 @@ internal sealed class InventoryState
         lock (_lock) return _allItems.Any(i => i.ItemId == itemId);
     }
 
-    public void Select(InventoryItemInfo item)
+    public bool Select(InventoryItemInfo item, HashSet<uint> blacklist)
     {
         lock (_lock)
         {
+            if (blacklist.Contains(item.ItemId))
+            {
+                DeselectItems(new[] { item.ItemId });
+                item.IsSelected = false;
+                return false;
+            }
             _selectedItems.Add(item.ItemId);
             item.IsSelected = true;
+            return true;
+        }
+    }
+
+    public void DeselectItems(IEnumerable<uint> itemIds)
+    {
+        lock (_lock)
+        {
+            var ids = itemIds.ToHashSet();
+            _selectedItems.ExceptWith(ids);
+            // Category objects may be copies of filtered/original inventory
+            // objects. Clear every stack's visual flag, including hidden rows.
+            foreach (var item in _originalItems.Concat(_allItems).Concat(_categories.SelectMany(c => c.Items)))
+            {
+                if (ids.Contains(item.ItemId)) item.IsSelected = false;
+            }
         }
     }
 
@@ -101,6 +123,7 @@ internal sealed class InventoryState
     {
         lock (_lock)
         {
+            DeselectItems(blacklist);
             foreach (var item in category.Items)
             {
                 if (blacklist.Contains(item.ItemId)) continue;
@@ -117,22 +140,6 @@ internal sealed class InventoryState
             foreach (var item in category.Items)
             {
                 _selectedItems.Remove(item.ItemId);
-                item.IsSelected = false;
-            }
-        }
-    }
-
-    public void TransferSelectionTo(HashSet<uint> destination)
-    {
-        lock (_lock)
-        {
-            foreach (var itemId in _selectedItems)
-            {
-                destination.Add(itemId);
-            }
-            _selectedItems.Clear();
-            foreach (var item in _allItems)
-            {
                 item.IsSelected = false;
             }
         }

@@ -23,6 +23,7 @@ internal class InventoryListsWindow : Window, IDisposable
     private readonly ColumnState _blacklistCol = new();
     private readonly ColumnState _autoDiscardCol = new();
     private readonly TimeSpan _searchDelay = TimeSpan.FromMilliseconds(250);
+    private string? _autoDiscardAddError;
 
     public InventoryListsWindow(
         InventoryManagementModule module,
@@ -116,9 +117,10 @@ internal class InventoryListsWindow : Window, IDisposable
         ImGui.Separator();
         if (!_module.ListsLocked)
         {
-            if (ImGui.Button("Clear all##bl"))
+            using (ImRaii.Disabled(_module.DiscardService.IsDiscarding))
             {
-                ImGui.OpenPopup("ClearBlacklistConfirm");
+                if (ImGui.Button("Clear all##bl"))
+                    ImGui.OpenPopup("ClearBlacklistConfirm");
             }
             ImGui.SameLine();
         }
@@ -137,7 +139,9 @@ internal class InventoryListsWindow : Window, IDisposable
         DrawColumnHeader("AUTO-DISCARD", _module.AutoDiscardItems.Count,
             "Discarded by /wahventory auto and passive auto-discard.");
         if (!_module.ListsLocked)
-            DrawSearchAdd(_autoDiscardCol, "autodiscard", _module.AutoDiscardItems, AddToAutoDiscard);
+            DrawSearchAdd(_autoDiscardCol, "autodiscard", _module.AutoDiscardItems, AddToAutoDiscard, isAutoDiscard: true);
+        if (_autoDiscardAddError != null)
+            ImGui.TextColored(Theme.ColorWarning, _autoDiscardAddError);
 
         ImGui.Separator();
         ImGui.Spacing();
@@ -153,9 +157,10 @@ internal class InventoryListsWindow : Window, IDisposable
         ImGui.Separator();
         if (!_module.ListsLocked)
         {
-            if (ImGui.Button("Clear all##ad"))
+            using (ImRaii.Disabled(_module.DiscardService.IsDiscarding))
             {
-                ImGui.OpenPopup("ClearAutoDiscardConfirm");
+                if (ImGui.Button("Clear all##ad"))
+                    ImGui.OpenPopup("ClearAutoDiscardConfirm");
             }
             ImGui.SameLine();
         }
@@ -194,8 +199,9 @@ internal class InventoryListsWindow : Window, IDisposable
         ImGui.Spacing();
     }
 
-    private void DrawSearchAdd(ColumnState col, string idSuffix, HashSet<uint> targetList, Action<uint> onAdd)
+    private void DrawSearchAdd(ColumnState col, string idSuffix, HashSet<uint> targetList, Action<uint> onAdd, bool isAutoDiscard = false)
     {
+        using var disabled = ImRaii.Disabled(_module.DiscardService.IsDiscarding);
         var availW = ImGui.GetContentRegionAvail().X;
         ImGui.SetNextItemWidth(availW - 36);
 
@@ -223,6 +229,7 @@ internal class InventoryListsWindow : Window, IDisposable
                 {
                     using var pushId = ImRaii.PushId($"result_{id}");
                     var already = targetList.Contains(id);
+                    var blacklisted = isAutoDiscard && _module.BlacklistedItems.Contains(id);
 
                     if (iconId > 0)
                     {
@@ -233,11 +240,11 @@ internal class InventoryListsWindow : Window, IDisposable
                             ImGui.SameLine();
                         }
                     }
-                    if (already)
+                    if (already || blacklisted)
                     {
                         using (ImRaii.PushColor(ImGuiCol.Text, Theme.ColorSubdued))
                         {
-                            ImGui.Text($"{name} (ID: {id}) — already added");
+                            ImGui.Text($"{name} (ID: {id}) — {(blacklisted ? "blacklisted" : "already added")}");
                         }
                     }
                     else
@@ -363,7 +370,7 @@ internal class InventoryListsWindow : Window, IDisposable
             ImGui.TextColored(Theme.ColorSubdued, ilvlText);
 
             ImGui.TableNextColumn();
-            if (_module.ListsLocked) continue;
+            if (_module.ListsLocked || _module.DiscardService.IsDiscarding) continue;
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0))
                                   .Push(ImGuiCol.ButtonHovered, new Vector4(0.45f, 0.20f, 0.20f, 0.6f))
                                   .Push(ImGuiCol.Text, Theme.ColorSubdued))
@@ -390,10 +397,13 @@ internal class InventoryListsWindow : Window, IDisposable
         ImGui.Text(message);
         ImGui.Spacing();
 
-        if (ImGui.Button("Yes, clear", new Vector2(110, 0)))
+        using (ImRaii.Disabled(_module.ListsLocked || _module.DiscardService.IsDiscarding))
         {
-            onConfirm();
-            ImGui.CloseCurrentPopup();
+            if (ImGui.Button("Yes, clear", new Vector2(110, 0)) && !_module.ListsLocked && !_module.DiscardService.IsDiscarding)
+            {
+                onConfirm();
+                ImGui.CloseCurrentPopup();
+            }
         }
         ImGui.SameLine();
         if (ImGui.Button("Cancel", new Vector2(110, 0)))
@@ -413,24 +423,19 @@ internal class InventoryListsWindow : Window, IDisposable
 
     private void AddToBlacklist(uint id)
     {
-        if (_module.BlacklistedItems.Add(id))
-        {
-            _module.SaveBlacklist();
-            _module.RefreshInventory();
-        }
+        _module.AddItemToBlacklist(id);
     }
 
     private void AddToAutoDiscard(uint id)
     {
-        if (_module.AutoDiscardItems.Add(id))
-        {
-            _module.SaveAutoDiscard();
-            _module.RefreshInventory();
-        }
+        _autoDiscardAddError = _module.AddItemToAutoDiscard(id) == InventoryListAddResult.Blacklisted
+            ? "This item is blacklisted. Remove it from the blacklist before adding it here."
+            : null;
     }
 
     private void RemoveFromBlacklist(uint id)
     {
+        if (_module.ListsLocked || _module.DiscardService.IsDiscarding) return;
         if (_module.BlacklistedItems.Remove(id))
         {
             _module.SaveBlacklist();
@@ -440,6 +445,7 @@ internal class InventoryListsWindow : Window, IDisposable
 
     private void RemoveFromAutoDiscard(uint id)
     {
+        if (_module.ListsLocked || _module.DiscardService.IsDiscarding) return;
         if (_module.AutoDiscardItems.Remove(id))
         {
             _module.SaveAutoDiscard();

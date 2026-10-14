@@ -29,6 +29,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] private static IObjectTable ObjectTable { get; set; } = null!;
     [PluginService] private static IKeyState KeyState { get; set; } = null!;
     [PluginService] private static IPlayerState PlayerState { get; set; } = null!;
+    [PluginService] private static IContextMenu ContextMenu { get; set; } = null!;
 
     private const string CommandName = "/wahventory";
 
@@ -41,6 +42,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private InventoryManagementModule InventoryModule { get; init; }
     private readonly AutomationStatusStore _automationStatus;
+    private readonly InventoryContextMenu _inventoryContextMenu;
 
     public Plugin()
     {
@@ -65,6 +67,7 @@ public sealed class Plugin : IDalamudPlugin
         ConfigManager = new ConfigurationManager(Services);
 
         InventoryModule = new InventoryManagementModule(this, Services);
+        _inventoryContextMenu = new InventoryContextMenu(ContextMenu, InventoryModule, Services);
         _automationStatus = new AutomationStatusStore();
         InventoryModule.DiscardService.OnDiscardStarted += ReportDiscardStarted;
         InventoryModule.DiscardService.OnDiscardProgress += ReportDiscardProgress;
@@ -99,6 +102,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        _inventoryContextMenu.Dispose();
         Services.Framework.Update -= OnFrameworkUpdate;
 
         InventoryModule.DiscardService.CancelDiscard();

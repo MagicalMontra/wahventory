@@ -84,6 +84,8 @@ public class InventoryManagementModule : IDisposable
 
         BlacklistedItems = _plugin.ConfigManager.LoadBlacklist();
         AutoDiscardItems = _plugin.ConfigManager.LoadAutoDiscard();
+        if (InventoryListPolicy.Normalize(BlacklistedItems, AutoDiscardItems) > 0)
+            _plugin.ConfigManager.SaveAutoDiscard(AutoDiscardItems);
         _selectedWorld = "Excalibur";
 
         PopulateAvailableWorlds();
@@ -273,6 +275,7 @@ public class InventoryManagementModule : IDisposable
 
     internal void RefreshInventory(bool requireAvailable = false)
     {
+        _state.DeselectItems(BlacklistedItems);
         var newItems = _inventoryHelpers.GetAllItems(_showArmory, false, requireAvailable);
 
         _state.ApplyRefreshAndRecategorize(
@@ -307,24 +310,69 @@ public class InventoryManagementModule : IDisposable
     
     public void SaveBlacklist()
     {
+        var removed = EnforceListInvariants();
         _plugin.ConfigManager.SaveBlacklist(BlacklistedItems);
+        if (removed > 0) _plugin.ConfigManager.SaveAutoDiscard(AutoDiscardItems);
     }
     
     public void SaveAutoDiscard()
     {
+        EnforceListInvariants();
         _plugin.ConfigManager.SaveAutoDiscard(AutoDiscardItems);
+    }
+
+    internal int EnforceListInvariants()
+    {
+        _state.DeselectItems(BlacklistedItems);
+        return InventoryListPolicy.Normalize(BlacklistedItems, AutoDiscardItems);
+    }
+
+    private void SaveLists()
+    {
+        EnforceListInvariants();
+        _plugin.ConfigManager.SaveBlacklist(BlacklistedItems);
+        _plugin.ConfigManager.SaveAutoDiscard(AutoDiscardItems);
+    }
+
+    public InventoryListAddResult AddItemToAutoDiscard(uint itemId)
+    {
+        var result = InventoryListPolicy.AddToAutoDiscard(itemId, BlacklistedItems, AutoDiscardItems,
+            ListsLocked, DiscardService.IsDiscarding);
+        if (result == InventoryListAddResult.Added)
+        {
+            SaveAutoDiscard();
+            RefreshInventory();
+        }
+        return result;
+    }
+
+    public InventoryListAddResult AddItemToBlacklist(uint itemId)
+    {
+        var result = InventoryListPolicy.AddToBlacklist(itemId, BlacklistedItems, AutoDiscardItems,
+            ListsLocked, DiscardService.IsDiscarding);
+        if (result is InventoryListAddResult.Added or InventoryListAddResult.AlreadyPresent)
+        {
+            SaveLists();
+            RefreshInventory();
+        }
+        return result;
     }
 
     internal List<ListBackupInfo> ListBackups() => _plugin.ConfigManager.GetListBackups();
 
     internal void ReplaceLists(IEnumerable<uint> blacklist, IEnumerable<uint> autoDiscard)
     {
+        if (DiscardService.IsDiscarding)
+            throw new InvalidOperationException("Wait for the current discard operation before replacing lists.");
+        // Materialize first so callers may safely pass the current list sets.
+        var nextBlacklist = blacklist.ToHashSet();
+        var nextAutoDiscard = autoDiscard.ToHashSet();
+        InventoryListPolicy.Normalize(nextBlacklist, nextAutoDiscard);
         BlacklistedItems.Clear();
-        BlacklistedItems.UnionWith(blacklist);
+        BlacklistedItems.UnionWith(nextBlacklist);
         AutoDiscardItems.Clear();
-        AutoDiscardItems.UnionWith(autoDiscard);
-        SaveBlacklist();
-        SaveAutoDiscard();
+        AutoDiscardItems.UnionWith(nextAutoDiscard);
+        SaveLists();
         RefreshInventory();
     }
     
@@ -359,10 +407,11 @@ public class InventoryManagementModule : IDisposable
 
     internal void AddSelectedToBlacklist()
     {
-        var count = _state.SelectedCount;
-        if (count == 0 || ListsLocked) return;
-        _state.TransferSelectionTo(BlacklistedItems);
-        SaveBlacklist();
+        var selected = _state.SnapshotSelectedIds();
+        if (selected.Count == 0 || ListsLocked || DiscardService.IsDiscarding) return;
+        var count = selected.Count(id => InventoryListPolicy.AddToBlacklist(id, BlacklistedItems, AutoDiscardItems) == InventoryListAddResult.Added);
+        _state.ClearSelectionAndReset();
+        SaveLists();
         RefreshInventory();
         _services.ChatGui.Print($"[wahventory] Added {count} item{(count == 1 ? "" : "s")} to blacklist.");
     }
@@ -396,9 +445,10 @@ public class InventoryManagementModule : IDisposable
 
     internal void AddSelectedToAutoDiscard()
     {
-        var count = _state.SelectedCount;
-        if (count == 0 || ListsLocked) return;
-        _state.TransferSelectionTo(AutoDiscardItems);
+        var selected = _state.SnapshotSelectedIds();
+        if (selected.Count == 0 || ListsLocked || DiscardService.IsDiscarding) return;
+        var count = selected.Count(id => InventoryListPolicy.AddToAutoDiscard(id, BlacklistedItems, AutoDiscardItems) == InventoryListAddResult.Added);
+        _state.ClearSelectionAndReset();
         SaveAutoDiscard();
         RefreshInventory();
         _services.ChatGui.Print($"[wahventory] Added {count} item{(count == 1 ? "" : "s")} to auto-discard list.");

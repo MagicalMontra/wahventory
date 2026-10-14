@@ -29,6 +29,20 @@ Release packages are available on [GitHub Releases](https://github.com/MagicalMo
 See the [available commands wiki](https://github.com/MagicalMontra/wahventory/wiki/Commands)
 for usage and completion statuses.
 
+## Inventory context menu (20.0.0.7)
+
+Right-click an item in your inventory or Armoury Chest and open the **Wahventory**
+submenu, marked with a boxed **W** at the bottom of the context menu:
+
+- **Add to wahventory discard list** adds the item to the auto-discard list.
+- **Add to wahventory blacklist** protects the item and removes it from the
+  discard list and the current selection.
+
+Blacklisted items cannot be added to the discard list or selected for discard.
+List rules apply to the item type, including both normal and HQ copies. Existing
+safety filters continue to apply. List edits are unavailable while a discard is
+active or list sync is enabled. Manage existing entries in **Lists**.
+
 ## Completion reporting (20.0.0.6)
 
 Refresh reports `RUNNING`, then `DONE` after inventory enumeration, safety
@@ -54,5 +68,9 @@ The linked-source discard lifecycle regression project is under
 `tests/DiscardLifecycleRegression`. It uses fake inventory/UI/task services and
 does not discard real items. Status-store regression checks are under
 `tests/AutomationStatusRegression`. Live game verification is still required.
+
+The list-policy and selection checks are in `tests/InventoryListRegression`.
+`tests/InventoryContextMenuRegression` checks the submenu against fake menu,
+inventory and persistence services; it does not manipulate the game inventory.
 
 Upstream: [wah/wahventory](https://git.wahapp.com/wah/wahventory). The project declares AGPL-3.0-or-later in its package metadata.
